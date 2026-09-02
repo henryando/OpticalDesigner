@@ -3,6 +3,7 @@ import JSZip from 'jszip'
 import OpticalCanvas from './components/OpticalCanvas'
 import Sidebar from './components/Sidebar'
 import SpreadsheetModal from './components/SpreadsheetModal'
+import PropagationModal from './components/PropagationModal'
 import { DEFAULT_SYMBOL_DEFS } from './utils/symbols'
 import {
   parseElementsCsv, serializeElementsCsv,
@@ -183,6 +184,8 @@ export default function App() {
   // Inline-rename state for the Switch Project modal.
   const [renamingProjId, setRenamingProjId] = useState(null)
   const [renameProjVal, setRenameProjVal]   = useState('')
+  // Which beam path (if any) is currently opened in the propagation modal.
+  const [propagationPath, setPropagationPath] = useState(null)
   const [newProjPromptOpen,  setNewProjPromptOpen]  = useState(false)
   const [newProjName,        setNewProjName]        = useState('')
   const [saveAsPromptOpen,   setSaveAsPromptOpen]   = useState(false)
@@ -679,6 +682,12 @@ export default function App() {
 
   function setPathColor(name, color) {
     setBeamPaths(bp => ({ ...bp, [name]: { ...bp[name], color } }))
+  }
+
+  // Merge arbitrary fields onto a path (used by the propagation modal for
+  // per-path wavelength_nm / w0_um). No history push — tuning-only.
+  function updatePathFields(name, patch) {
+    setBeamPaths(bp => (bp[name] ? { ...bp, [name]: { ...bp[name], ...patch } } : bp))
   }
 
   // ── Layer helpers ──────────────────────────────────────────────────────────
@@ -2016,6 +2025,7 @@ export default function App() {
           visiblePaths={visiblePaths}
           onToggle={togglePath}
           onToggleAll={toggleAll}
+          onOpenPropagation={setPropagationPath}
           onAddPath={addBeamPath}
           onDeletePath={deleteBeamPath}
           onSetPathColor={setPathColor}
@@ -2167,6 +2177,17 @@ export default function App() {
       )}
 
       {/* ── Open Project modal ───────────────────────────────────────────────── */}
+      {propagationPath && beamPaths[propagationPath] && (
+        <PropagationModal
+          pathName={propagationPath}
+          path={beamPaths[propagationPath]}
+          elements={effectiveElements}
+          onClose={() => setPropagationPath(null)}
+          onUpdatePath={updatePathFields}
+          onUpdateElement={updateElementField}
+        />
+      )}
+
       {projectsModalOpen && (() => {
         const projects = loadSavedProjects()
         const entries = Object.entries(projects).sort(([, a], [, b]) => b.savedAt - a.savedAt)

@@ -16,7 +16,7 @@ function ColorSwatch({ color, onChange, size = 10 }) {
 export default function Sidebar({
   // Beam paths
   beamPaths, visiblePaths, onToggle, onToggleAll,
-  onAddPath, onDeletePath, onSetPathColor, onRenamePath,
+  onAddPath, onDeletePath, onSetPathColor, onRenamePath, onOpenPropagation,
   // Beam path editing
   selectedLabels, selectedElement, allMetaKeys, onUpdateElement, onRenameElement,
   editingPath, onSetEditingPath, onDeleteEdge,
@@ -219,6 +219,10 @@ export default function Sidebar({
                         onDoubleClick={() => { setRenamingPath(name); setRenamePathVal(name) }}
                         title="Double-click to rename">{name}</span>
                     )}
+                    <button className="path-edit-btn"
+                      title="Gaussian beam propagation"
+                      onClick={() => onOpenPropagation?.(name)}
+                    >λ</button>
                     <button
                       className={`path-edit-btn ${isEditing ? 'active' : ''}`}
                       title={isEditing ? 'Stop editing' : 'Edit edges'}
