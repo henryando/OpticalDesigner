@@ -1962,7 +1962,7 @@ export default function App() {
         {currentProjectName && <span className="project-name-badge">{currentProjectName}</span>}
         {currentCloudProject && <span className="project-name-badge">☁ {currentCloudProject.name}</span>}
         <div className="header-controls">
-          <a className="file-btn" href="https://github.com/ChinlabLiCsCode/OpticalDesign" target="_blank" rel="noreferrer">GitHub</a>
+          <a className="file-btn" href="https://github.com/henryando/OpticalDesigner" target="_blank" rel="noreferrer">GitHub</a>
           {supabase && (
             session ? (
               <>
