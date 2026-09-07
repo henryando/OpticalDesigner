@@ -1,0 +1,11 @@
+# Force text diffs for source files, even when they contain a lot of
+# non-ASCII bytes (greek letters, arrows, em dashes) that would otherwise
+# make git's binary heuristic misclassify them.
+*.jsx text diff
+*.js  text diff
+*.ts  text diff
+*.tsx text diff
+*.css text diff
+*.md  text diff
+*.json text diff
+*.py  text diff
