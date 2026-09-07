@@ -60,6 +60,53 @@ export function curvatureRadiusFromQ(q) {
 export function nmToMm(nm) { return nm / NM_PER_MM }
 // Convert waist µm → mm.
 export function umToMm(um) { return um / 1e3 }
+export function mmToUm(mm) { return mm * 1e3 }
+// Convert milliradian → radian.
+export function mradToRad(mrad) { return mrad / 1000 }
+
+// Initial q from local beam radius w (mm) and local divergence half-angle
+// θ (rad, positive = expanding). Uses the identity θ_local = w/R, so
+//    1/q = θ/w  -  i · λ/(π w²)
+// θ = 0 collapses to the pure-waist form (radius w0 at z=0).
+export function qFromBeam(w_mm, theta_rad, lambda_mm) {
+  const invR = w_mm === 0 ? 0 : theta_rad / w_mm
+  const invIm = -lambda_mm / (Math.PI * w_mm * w_mm)
+  return cDiv({ re: 1, im: 0 }, { re: invR, im: invIm })
+}
+
+// Sample two independent axes (x, y) simultaneously. Each step is:
+//   { kind: 'space', L: mm, label? }
+//   { kind: 'lens',  f: mm, shape: 'spherical' | 'cylX' | 'cylY',
+//                   label?, elementLabel? }
+// spherical acts on both axes; cylX only on qx; cylY only on qy.
+// Returns { traceX, traceY, events, qxFinal, qyFinal, zTotal }.
+export function sampleWofZ2D(steps, qx0, qy0, lambda_mm, samplesPerSpace = 40) {
+  const traceX = [], traceY = [], events = []
+  let qx = qx0, qy = qy0, z = 0
+  traceX.push({ z_mm: 0, w_mm: radiusFromQ(qx, lambda_mm) })
+  traceY.push({ z_mm: 0, w_mm: radiusFromQ(qy, lambda_mm) })
+  for (const step of steps) {
+    if (step.kind === 'space') {
+      const n = Math.max(2, samplesPerSpace)
+      for (let i = 1; i <= n; i++) {
+        const dz = (step.L * i) / n
+        traceX.push({ z_mm: z + dz, w_mm: radiusFromQ(propagateFreeSpace(qx, dz), lambda_mm) })
+        traceY.push({ z_mm: z + dz, w_mm: radiusFromQ(propagateFreeSpace(qy, dz), lambda_mm) })
+      }
+      qx = propagateFreeSpace(qx, step.L)
+      qy = propagateFreeSpace(qy, step.L)
+      z += step.L
+    } else if (step.kind === 'lens') {
+      const shape = step.shape ?? 'spherical'
+      if (shape === 'spherical' || shape === 'cylX') qx = propagateThinLens(qx, step.f)
+      if (shape === 'spherical' || shape === 'cylY') qy = propagateThinLens(qy, step.f)
+      events.push({ z_mm: z, kind: 'lens', label: step.label, elementLabel: step.elementLabel, f: step.f, shape })
+      traceX.push({ z_mm: z, w_mm: radiusFromQ(qx, lambda_mm) })
+      traceY.push({ z_mm: z, w_mm: radiusFromQ(qy, lambda_mm) })
+    }
+  }
+  return { traceX, traceY, events, qxFinal: qx, qyFinal: qy, zTotal: z }
+}
 
 // A propagation "step" describes one operation along the path:
 //   { kind: 'space', L: mm, label?: string, elementLabel?: string }

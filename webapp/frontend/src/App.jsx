@@ -3,7 +3,7 @@ import JSZip from 'jszip'
 import OpticalCanvas from './components/OpticalCanvas'
 import Sidebar from './components/Sidebar'
 import SpreadsheetModal from './components/SpreadsheetModal'
-import PropagationModal from './components/PropagationModal'
+import BeamPropagationMode from './components/BeamPropagationMode'
 import { DEFAULT_SYMBOL_DEFS } from './utils/symbols'
 import {
   parseElementsCsv, serializeElementsCsv,
@@ -119,6 +119,13 @@ export default function App() {
   const [visibleBg,    setVisibleBg]    = useState(() => _ls?.visibleBg    ?? {})
   // Images placed as background layers. Each entry: {href, x, y, widthIn, opacity, visible}
   const [bgImages,     setBgImages]     = useState(() => _ls?.bgImages     ?? {})
+  // Beam propagation plots. Each entry describes an independent sandbox that
+  // walks a sequence of lenses/free-space and plots w(z). Keyed by id.
+  const [propagations,       setPropagations]       = useState(() => _ls?.propagations       ?? {})
+  const [activePropagation,  setActivePropagation]  = useState(() => _ls?.activePropagation  ?? null)
+  // Top-level view mode: 'design' | 'propagation'. Switches between the main
+  // designer and the beam-propagation sandbox.
+  const [appMode, setAppMode] = useState('design')
   const [error,        setError]        = useState(null)
   const [notice,       setNotice]       = useState(null)
 
@@ -184,8 +191,6 @@ export default function App() {
   // Inline-rename state for the Switch Project modal.
   const [renamingProjId, setRenamingProjId] = useState(null)
   const [renameProjVal, setRenameProjVal]   = useState('')
-  // Which beam path (if any) is currently opened in the propagation modal.
-  const [propagationPath, setPropagationPath] = useState(null)
   const [newProjPromptOpen,  setNewProjPromptOpen]  = useState(false)
   const [newProjName,        setNewProjName]        = useState('')
   const [saveAsPromptOpen,   setSaveAsPromptOpen]   = useState(false)
@@ -226,12 +231,12 @@ export default function App() {
       try {
         localStorage.setItem('optDesign_v1', JSON.stringify({
           elements, overrides, beamPaths, bgGroups, visiblePaths, visibleBg,
-          bgImages,
+          bgImages, propagations, activePropagation,
           settings, config, symbolDefs, sidebarWidth, layers, activeLayer,
         }))
       } catch {}
     }, 800)
-  }, [elements, overrides, beamPaths, bgGroups, visiblePaths, visibleBg, bgImages, settings, config, symbolDefs, sidebarWidth, layers, activeLayer])
+  }, [elements, overrides, beamPaths, bgGroups, visiblePaths, visibleBg, bgImages, propagations, activePropagation, settings, config, symbolDefs, sidebarWidth, layers, activeLayer])
 
   useEffect(() => {
     document.documentElement.dataset.theme = settings.darkMode ? 'dark' : 'light'
@@ -742,7 +747,7 @@ export default function App() {
   // ── Project helpers ────────────────────────────────────────────────────────
   function captureProjectState() {
     return { elements, overrides, beamPaths, bgGroups, visiblePaths, visibleBg,
-             bgImages,
+             bgImages, propagations, activePropagation,
              settings, config, symbolDefs, sidebarWidth, layers, activeLayer }
   }
 
@@ -754,6 +759,8 @@ export default function App() {
     if (s.visiblePaths != null) setVisiblePaths(s.visiblePaths)
     if (s.visibleBg    != null) setVisibleBg(s.visibleBg)
     if (s.bgImages     != null) setBgImages(s.bgImages)
+    if (s.propagations != null) setPropagations(s.propagations)
+    if (s.activePropagation !== undefined) setActivePropagation(s.activePropagation)
     if (s.settings     != null) setSettings(prev => ({ ...prev, ...s.settings }))
     if (s.config       != null) setConfig(s.config)
     if (s.symbolDefs   != null) setSymbolDefs(s.symbolDefs)
@@ -1929,6 +1936,11 @@ export default function App() {
             )}
           </div>
           <span className="hdr-sep" />
+          <button className="file-btn" onClick={() => setAppMode(m => m === 'design' ? 'propagation' : 'design')}
+            title="Toggle beam propagation sandbox">
+            {appMode === 'design' ? 'Beam Propagation' : 'Designer'}
+          </button>
+          <span className="hdr-sep" />
           <button className="file-btn file-btn-accent" onClick={handleExportPDF} disabled={!effectiveElements.length}>Export PDF</button>
         </div>
       </header>
@@ -1948,6 +1960,17 @@ export default function App() {
       )}
 
       <div className="app-body" style={{ position: 'relative' }}>
+        {appMode === 'propagation' && (
+          <BeamPropagationMode
+            propagations={propagations}
+            activePropagation={activePropagation}
+            onSetPropagations={setPropagations}
+            onSetActivePropagation={setActivePropagation}
+            onExit={() => setAppMode('design')}
+            beamPaths={beamPaths}
+            elements={effectiveElements}
+          />
+        )}
         {searchOpen && (
           <div style={{
             position: 'absolute', top: 8, right: 8, zIndex: 200,
@@ -2025,7 +2048,6 @@ export default function App() {
           visiblePaths={visiblePaths}
           onToggle={togglePath}
           onToggleAll={toggleAll}
-          onOpenPropagation={setPropagationPath}
           onAddPath={addBeamPath}
           onDeletePath={deleteBeamPath}
           onSetPathColor={setPathColor}
@@ -2177,17 +2199,6 @@ export default function App() {
       )}
 
       {/* ── Open Project modal ───────────────────────────────────────────────── */}
-      {propagationPath && beamPaths[propagationPath] && (
-        <PropagationModal
-          pathName={propagationPath}
-          path={beamPaths[propagationPath]}
-          elements={effectiveElements}
-          onClose={() => setPropagationPath(null)}
-          onUpdatePath={updatePathFields}
-          onUpdateElement={updateElementField}
-        />
-      )}
-
       {projectsModalOpen && (() => {
         const projects = loadSavedProjects()
         const entries = Object.entries(projects).sort(([, a], [, b]) => b.savedAt - a.savedAt)
