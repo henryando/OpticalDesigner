@@ -1872,7 +1872,7 @@ export default function App() {
         <span className="app-title">👁️ Optical Table Designer</span>
         {currentProjectName && <span className="project-name-badge">{currentProjectName}</span>}
         <div className="header-controls">
-          <a className="file-btn" href="https://github.com/ChinlabLiCsCode/OpticalDesign" target="_blank" rel="noreferrer">GitHub</a>
+          <a className="file-btn" href="https://github.com/henryando/OpticalDesigner" target="_blank" rel="noreferrer">GitHub</a>
           <div className="file-menu" ref={fileMenuRef}>
             <button className="file-btn" onClick={() => setFileMenuOpen(o => !o)}>File ▾</button>
             {fileMenuOpen && (
