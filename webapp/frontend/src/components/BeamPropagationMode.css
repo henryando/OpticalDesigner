@@ -1,0 +1,156 @@
+/* ── Beam Propagation mode ────────────────────────────────────────────── */
+.prop-mode {
+  position: absolute; inset: 0; z-index: 100;
+  display: flex; overflow: hidden;
+  background: var(--bg-app); color: var(--text);
+  font-size: 12px;
+}
+
+/* Left rail: propagation list */
+.prop-rail {
+  width: 240px; min-width: 240px;
+  display: flex; flex-direction: column;
+  background: var(--bg-sidebar); border-right: 1px solid var(--border-side);
+}
+.prop-rail-head {
+  padding: 8px 10px; border-bottom: 1px solid var(--border-side);
+  display: flex; align-items: center; justify-content: space-between; gap: 6px;
+  font-weight: 600; font-size: 13px;
+}
+.prop-rail-actions {
+  padding: 8px 10px; display: flex; gap: 6px;
+  border-bottom: 1px solid var(--border-side);
+}
+.prop-rail-list {
+  list-style: none; padding: 4px 0; margin: 0;
+  overflow-y: auto; flex: 1;
+}
+.prop-rail-item {
+  padding: 6px 10px; display: flex; align-items: center; gap: 4px;
+  border-left: 3px solid transparent;
+}
+.prop-rail-item:hover { background: color-mix(in srgb, var(--bg-item) 60%, transparent); }
+.prop-rail-item.active {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  border-left-color: var(--accent-bright);
+}
+.prop-rail-name {
+  flex: 1; text-align: left;
+  background: none; border: none; color: inherit;
+  cursor: pointer; padding: 0; font: inherit;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.prop-rail-empty { padding: 12px 10px; color: var(--text-muted); font-size: 11px; }
+.prop-rail-foot { padding: 8px 10px; border-top: 1px solid var(--border-side); }
+
+/* Main content column */
+.prop-main {
+  flex: 1; overflow: auto;
+  padding: 16px 20px;
+  display: flex; flex-direction: column; gap: 14px;
+}
+.prop-main .empty { color: var(--text-muted); }
+
+/* Header row: name + wavelength + distance + split toggle */
+.prop-header {
+  display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+  padding-bottom: 10px; border-bottom: 1px solid var(--border-side);
+}
+.prop-name {
+  font-size: 16px; font-weight: 600; min-width: 220px;
+  background: transparent; border: none; color: inherit;
+  padding: 4px 6px; border-radius: 4px;
+}
+.prop-name:hover, .prop-name:focus {
+  background: var(--bg-item); outline: 1px solid var(--border-input);
+}
+.prop-source {
+  font-size: 11px; color: var(--text-muted);
+  padding: 2px 8px; background: var(--bg-item); border-radius: 10px;
+}
+
+/* Field groupings */
+.prop-field {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12px; color: var(--text-dim);
+}
+.prop-field input.snap-input,
+.prop-field select.snap-input { min-width: 60px; }
+
+.prop-section {
+  display: flex; flex-direction: column; gap: 8px;
+}
+.prop-section-title {
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px;
+  color: var(--text-muted); font-weight: 600;
+}
+.prop-section-title small { font-weight: 400; text-transform: none; letter-spacing: 0; }
+.prop-section-body {
+  padding: 10px 12px;
+  border: 1px solid var(--border-side); border-radius: 6px;
+  background: color-mix(in srgb, var(--bg-item) 40%, transparent);
+  display: flex; flex-direction: column; gap: 8px;
+}
+.prop-row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+
+/* Data tables */
+.prop-table {
+  width: 100%; border-collapse: separate; border-spacing: 0;
+  font-size: 12px;
+}
+.prop-table th {
+  text-align: left; font-weight: 500;
+  color: var(--text-muted); font-size: 11px;
+  text-transform: uppercase; letter-spacing: 0.4px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border-side);
+}
+.prop-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border-side) 60%, transparent);
+  vertical-align: middle;
+}
+.prop-table tr:last-child td { border-bottom: none; }
+.prop-table tr.passthrough td { opacity: 0.6; }
+.prop-table td.el-meta { color: var(--text-muted); font-size: 11px; }
+.prop-table td.dim     { color: var(--text-muted); }
+.prop-table input.snap-input,
+.prop-table select.snap-input {
+  padding: 3px 6px;
+}
+.prop-actions { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
+
+/* Plots container */
+.prop-plot-wrap { display: flex; flex-direction: column; gap: 12px; }
+.prop-plot {
+  background: var(--bg-item);
+  border: 1px solid var(--border-side);
+  border-radius: 6px;
+  display: block;
+}
+
+/* Import modal specifics */
+.imp-graph {
+  background: var(--bg-item);
+  border: 1px solid var(--border-side);
+  border-radius: 6px;
+  display: block;
+}
+.imp-legend { color: var(--text-muted); font-size: 11px; margin: 4px 0; }
+.imp-candidates {
+  list-style: none; padding: 0; margin: 4px 0 0;
+  max-height: 140px; overflow: auto;
+  border: 1px solid var(--border-side); border-radius: 4px;
+}
+.imp-candidates li {
+  padding: 5px 8px; border-bottom: 1px solid var(--border-side);
+  display: flex; gap: 8px; align-items: center;
+  cursor: pointer;
+}
+.imp-candidates li:last-child { border-bottom: none; }
+.imp-candidates li:hover,
+.imp-candidates li.hover { background: var(--bg-item); }
+.imp-candidates .imp-cand-path {
+  font-family: monospace; font-size: 11px; color: var(--text-dim);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
