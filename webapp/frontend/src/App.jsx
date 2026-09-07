@@ -5,6 +5,7 @@ import Sidebar from './components/Sidebar'
 import SpreadsheetModal from './components/SpreadsheetModal'
 import AuthPanel from './components/AuthPanel'
 import CloudProjectsModal from './components/CloudProjectsModal'
+import BeamPropagationMode from './components/BeamPropagationMode'
 import { DEFAULT_SYMBOL_DEFS } from './utils/symbols'
 import {
   parseElementsCsv, serializeElementsCsv,
@@ -124,6 +125,13 @@ export default function App() {
   const [visibleBg,    setVisibleBg]    = useState(() => _ls?.visibleBg    ?? {})
   // Images placed as background layers. Each entry: {href, x, y, widthIn, opacity, visible}
   const [bgImages,     setBgImages]     = useState(() => _ls?.bgImages     ?? {})
+  // Beam propagation plots. Each entry describes an independent sandbox that
+  // walks a sequence of lenses/free-space and plots w(z). Keyed by id.
+  const [propagations,       setPropagations]       = useState(() => _ls?.propagations       ?? {})
+  const [activePropagation,  setActivePropagation]  = useState(() => _ls?.activePropagation  ?? null)
+  // Top-level view mode: 'design' | 'propagation'. Switches between the main
+  // designer and the beam-propagation sandbox.
+  const [appMode, setAppMode] = useState('design')
   const [error,        setError]        = useState(null)
   const [notice,       setNotice]       = useState(null)
 
@@ -242,12 +250,12 @@ export default function App() {
       try {
         localStorage.setItem('optDesign_v1', JSON.stringify({
           elements, overrides, beamPaths, bgGroups, visiblePaths, visibleBg,
-          bgImages,
+          bgImages, propagations, activePropagation,
           settings, config, symbolDefs, sidebarWidth, layers, activeLayer,
         }))
       } catch {}
     }, 800)
-  }, [elements, overrides, beamPaths, bgGroups, visiblePaths, visibleBg, bgImages, settings, config, symbolDefs, sidebarWidth, layers, activeLayer])
+  }, [elements, overrides, beamPaths, bgGroups, visiblePaths, visibleBg, bgImages, propagations, activePropagation, settings, config, symbolDefs, sidebarWidth, layers, activeLayer])
 
   useEffect(() => {
     document.documentElement.dataset.theme = settings.darkMode ? 'dark' : 'light'
@@ -710,6 +718,12 @@ export default function App() {
     setBeamPaths(bp => ({ ...bp, [name]: { ...bp[name], color } }))
   }
 
+  // Merge arbitrary fields onto a path (used by the propagation modal for
+  // per-path wavelength_nm / w0_um). No history push — tuning-only.
+  function updatePathFields(name, patch) {
+    setBeamPaths(bp => (bp[name] ? { ...bp, [name]: { ...bp[name], ...patch } } : bp))
+  }
+
   // ── Layer helpers ──────────────────────────────────────────────────────────
   function addLayer(name) {
     const trimmed = name.trim()
@@ -762,7 +776,7 @@ export default function App() {
   // ── Project helpers ────────────────────────────────────────────────────────
   function captureProjectState() {
     return { elements, overrides, beamPaths, bgGroups, visiblePaths, visibleBg,
-             bgImages,
+             bgImages, propagations, activePropagation,
              settings, config, symbolDefs, sidebarWidth, layers, activeLayer }
   }
 
@@ -774,6 +788,8 @@ export default function App() {
     if (s.visiblePaths != null) setVisiblePaths(s.visiblePaths)
     if (s.visibleBg    != null) setVisibleBg(s.visibleBg)
     if (s.bgImages     != null) setBgImages(s.bgImages)
+    if (s.propagations != null) setPropagations(s.propagations)
+    if (s.activePropagation !== undefined) setActivePropagation(s.activePropagation)
     if (s.settings     != null) setSettings(prev => ({ ...prev, ...s.settings }))
     if (s.config       != null) setConfig(s.config)
     if (s.symbolDefs   != null) setSymbolDefs(s.symbolDefs)
@@ -1963,7 +1979,7 @@ export default function App() {
         {currentCloudProject && <span className="project-name-badge">☁ {currentCloudProject.name}</span>}
         <div className="header-controls">
           <a className="file-btn" href="https://github.com/henryando/OpticalDesigner" target="_blank" rel="noreferrer">GitHub</a>
-          {supabase && (
+          {supabase && appMode === 'design' && (
             session ? (
               <>
                 <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{session.user.email}</span>
@@ -2017,7 +2033,7 @@ export default function App() {
               </div>
             )}
           </div>
-          <div className="file-menu" ref={viewMenuRef}>
+          {appMode === 'design' ? (<div className="file-menu" ref={viewMenuRef}>
             <button className="file-btn" onClick={() => setViewMenuOpen(o => !o)}>View ▾</button>
             {viewMenuOpen && (
               <div className="file-menu-dropdown">
@@ -2031,8 +2047,8 @@ export default function App() {
                 </button>
               </div>
             )}
-          </div>
-          <div className="file-menu" ref={transformMenuRef}>
+          </div>) : null}
+          {appMode === 'design' ? (<div className="file-menu" ref={transformMenuRef}>
             <button className="file-btn" onClick={() => setTransformMenuOpen(o => !o)}>Transform ▾</button>
             {transformMenuOpen && (
               <div className="file-menu-dropdown">
@@ -2045,9 +2061,16 @@ export default function App() {
                 <button className="file-menu-item" onClick={() => { transformProject('flipV'); setTransformMenuOpen(false) }}>↕ Flip vertical</button>
               </div>
             )}
-          </div>
-          <span className="hdr-sep" />
-          <button className="file-btn file-btn-accent" onClick={handleExportPDF} disabled={!effectiveElements.length}>Export PDF</button>
+          </div>) : null}
+          {appMode === 'design' && <span className="hdr-sep" />}
+          <button className="file-btn" onClick={() => setAppMode(m => m === 'design' ? 'propagation' : 'design')}
+            title="Toggle beam propagation sandbox">
+            {appMode === 'design' ? 'Beam Propagation (Experimental)' : 'Designer'}
+          </button>
+          {appMode === 'design' && (<>
+            <span className="hdr-sep" />
+            <button className="file-btn file-btn-accent" onClick={handleExportPDF} disabled={!effectiveElements.length}>Export PDF</button>
+          </>)}
         </div>
       </header>
 
@@ -2073,6 +2096,18 @@ export default function App() {
       )}
 
       <div className="app-body" style={{ position: 'relative' }}>
+        {appMode === 'propagation' && (
+          <BeamPropagationMode
+            propagations={propagations}
+            activePropagation={activePropagation}
+            onSetPropagations={setPropagations}
+            onSetActivePropagation={setActivePropagation}
+            onExit={() => setAppMode('design')}
+            beamPaths={beamPaths}
+            elements={effectiveElements}
+            symbolDefs={symbolDefs}
+          />
+        )}
         {searchOpen && (
           <div style={{
             position: 'absolute', top: 8, right: 8, zIndex: 200,
