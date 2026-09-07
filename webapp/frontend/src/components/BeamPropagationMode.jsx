@@ -304,16 +304,24 @@ function ImportGraphModal({ beamPaths, elements, symbolDefs, onClose, onImport }
                             symbolDefs={symbolDefs} dark={true} />
                         </g>
                       )}
+                      {/* Text sizes and label offsets divided by the zoom
+                          factor so labels stay the same visual size (and stay
+                          at the same visual distance from the icon) as the
+                          user zooms. The zoom stays useful for the icons and
+                          layout, without labels blowing up or shrinking. */}
                       {showLabel && (
-                        <text x={sx(P.x)} y={sy(P.y) - 15} textAnchor="middle" fontSize={11}
+                        <text x={sx(P.x)} y={sy(P.y) - 15 / view.k} textAnchor="middle"
+                          fontSize={11 / view.k}
                           fontWeight={600} fill="var(--text)">{l}</text>
                       )}
                       {showType && type && (
-                        <text x={sx(P.x)} y={sy(P.y) + 22} textAnchor="middle" fontSize={9}
+                        <text x={sx(P.x)} y={sy(P.y) + 22 / view.k} textAnchor="middle"
+                          fontSize={9 / view.k}
                           fill="var(--text-muted)">{type}</text>
                       )}
                       {showAnnotation && annot && (
-                        <text x={sx(P.x)} y={sy(P.y) + 33} textAnchor="middle" fontSize={9}
+                        <text x={sx(P.x)} y={sy(P.y) + 33 / view.k} textAnchor="middle"
+                          fontSize={9 / view.k}
                           fill="var(--text-muted)" fontStyle="italic">{annot}</text>
                       )}
                     </g>
@@ -359,8 +367,11 @@ function ImportGraphModal({ beamPaths, elements, symbolDefs, onClose, onImport }
 function BeamPlot({ traces, events, testPoints, zTotal, height = 220, title }) {
   const W = 720, H = height, PAD_L = 52, PAD_R = 16, PAD_T = 26, PAD_B = 34
   const plotW = W - PAD_L - PAD_R, plotH = H - PAD_T - PAD_B
-  const maxW = Math.max(0.01, ...traces.flatMap(t =>
+  // Pick a y-axis maximum that fits the widest sample across all traces
+  // with a small headroom so the beam never touches the top edge.
+  const dataMax = Math.max(0.01, ...traces.flatMap(t =>
     t.points.map(p => p.w_mm).filter(Number.isFinite)))
+  const maxW = dataMax * 1.08
   const xOf = z => PAD_L + (z / Math.max(1e-6, zTotal)) * plotW
   const yOf = w => PAD_T + plotH - (w / maxW) * plotH
   const linePathOf = pts => pts.map((p, i) =>
@@ -483,6 +494,7 @@ export default function BeamPropagationMode({
   const [importOpen, setImportOpen] = useState(false)
   const [renamingId, setRenamingId] = useState(null)
   const [renameVal, setRenameVal]   = useState('')
+  const [showPassthroughOptics, setShowPassthroughOptics] = useState(false)
 
   // Normalise any legacy µm-based propagations to mm on read.
   const propagations = useMemo(() => {
@@ -754,11 +766,27 @@ export default function BeamPropagationMode({
             </div>
 
             {/* Optics */}
+            {(() => {
+              const allOptics = p.optics ?? []
+              const passthroughCount = allOptics.filter(o => o.kind !== 'lens').length
+              // Preserve the original index so mutateOptic / removeOptic still
+              // point at the right entry after filtering out passthrough rows.
+              const visibleOptics = showPassthroughOptics
+                ? allOptics.map((o, i) => [o, i])
+                : allOptics.map((o, i) => [o, i]).filter(([o]) => o.kind === 'lens')
+              return (
             <div className="prop-section">
               <div className="prop-section-title">Optics</div>
               <div className="prop-section-body">
                 <div className="prop-actions">
                   <button className="small-btn" onClick={addOptic}>+ Add lens</button>
+                  {passthroughCount > 0 && (
+                    <label className="imp-toggle" style={{ marginLeft: 6 }}>
+                      <input type="checkbox" checked={showPassthroughOptics}
+                        onChange={e => setShowPassthroughOptics(e.target.checked)} />
+                      {' '}Show pass-through ({passthroughCount})
+                    </label>
+                  )}
                 </div>
                 <table className="prop-table">
                   <thead>
@@ -768,7 +796,7 @@ export default function BeamPropagationMode({
                     </tr>
                   </thead>
                   <tbody>
-                    {(p.optics ?? []).map((o, i) => {
+                    {visibleOptics.map(([o, i]) => {
                       const isLens = o.kind === 'lens'
                       return (
                         <tr key={o.id} className={isLens ? '' : 'passthrough'}>
@@ -811,6 +839,8 @@ export default function BeamPropagationMode({
                 </table>
               </div>
             </div>
+              )
+            })()}
 
             {/* Test points */}
             <div className="prop-section">

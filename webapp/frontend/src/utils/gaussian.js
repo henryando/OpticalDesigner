@@ -80,7 +80,7 @@ export function qFromBeam(w_mm, theta_rad, lambda_mm) {
 //                   label?, elementLabel? }
 // spherical acts on both axes; cylX only on qx; cylY only on qy.
 // Returns { traceX, traceY, events, qxFinal, qyFinal, zTotal }.
-export function sampleWofZ2D(steps, qx0, qy0, lambda_mm, samplesPerSpace = 40) {
+export function sampleWofZ2D(steps, qx0, qy0, lambda_mm, samplesPerSpace = 120) {
   const traceX = [], traceY = [], events = []
   let qx = qx0, qy = qy0, z = 0
   traceX.push({ z_mm: 0, w_mm: radiusFromQ(qx, lambda_mm) })
