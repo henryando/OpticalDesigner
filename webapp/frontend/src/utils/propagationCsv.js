@@ -37,9 +37,10 @@ function parseRow(line) {
   return out
 }
 
+// Waists are 1/e² intensity RADII in mm.
 const HEADER = [
   'Name', 'Split XY', 'Wavelength nm', 'Distance mm',
-  'w0x um', 'div_x mrad', 'w0y um', 'div_y mrad',
+  'w0x mm', 'div_x mrad', 'w0y mm', 'div_y mrad',
   'Optics JSON', 'Test Points JSON', 'Source JSON',
 ]
 
@@ -51,9 +52,9 @@ export function serializePropagationsCsv(propagations) {
       p.splitXY ? 'TRUE' : 'FALSE',
       p.wavelength_nm ?? 1064,
       p.distance_mm ?? 500,
-      p.w0x_um ?? 250,
+      p.w0x_mm ?? 0.25,
       p.divx_mrad ?? 0,
-      p.w0y_um ?? p.w0x_um ?? 250,
+      p.w0y_mm ?? p.w0x_mm ?? 0.25,
       p.divy_mrad ?? p.divx_mrad ?? 0,
       JSON.stringify(p.optics ?? []),
       JSON.stringify(p.testPoints ?? []),
@@ -84,9 +85,9 @@ export function parsePropagationsCsv(text) {
       splitXY: /^true$/i.test(split),
       wavelength_nm: parseFloat(lam) || 1064,
       distance_mm: parseFloat(dist) || 500,
-      w0x_um: parseFloat(w0x) || 250,
+      w0x_mm: parseFloat(w0x) || 0.25,
       divx_mrad: parseFloat(divx) || 0,
-      w0y_um: parseFloat(w0y) || 250,
+      w0y_mm: parseFloat(w0y) || 0.25,
       divy_mrad: parseFloat(divy) || 0,
       optics,
       testPoints,

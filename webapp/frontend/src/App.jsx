@@ -1969,6 +1969,7 @@ export default function App() {
             onExit={() => setAppMode('design')}
             beamPaths={beamPaths}
             elements={effectiveElements}
+            symbolDefs={symbolDefs}
           />
         )}
         {searchOpen && (
