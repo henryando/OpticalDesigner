@@ -1906,7 +1906,7 @@ export default function App() {
               </div>
             )}
           </div>
-          <div className="file-menu" ref={viewMenuRef}>
+          {appMode === 'design' ? (<div className="file-menu" ref={viewMenuRef}>
             <button className="file-btn" onClick={() => setViewMenuOpen(o => !o)}>View ▾</button>
             {viewMenuOpen && (
               <div className="file-menu-dropdown">
@@ -1920,8 +1920,8 @@ export default function App() {
                 </button>
               </div>
             )}
-          </div>
-          <div className="file-menu" ref={transformMenuRef}>
+          </div>) : null}
+          {appMode === 'design' ? (<div className="file-menu" ref={transformMenuRef}>
             <button className="file-btn" onClick={() => setTransformMenuOpen(o => !o)}>Transform ▾</button>
             {transformMenuOpen && (
               <div className="file-menu-dropdown">
@@ -1934,14 +1934,16 @@ export default function App() {
                 <button className="file-menu-item" onClick={() => { transformProject('flipV'); setTransformMenuOpen(false) }}>↕ Flip vertical</button>
               </div>
             )}
-          </div>
-          <span className="hdr-sep" />
+          </div>) : null}
+          {appMode === 'design' && <span className="hdr-sep" />}
           <button className="file-btn" onClick={() => setAppMode(m => m === 'design' ? 'propagation' : 'design')}
             title="Toggle beam propagation sandbox">
             {appMode === 'design' ? 'Beam Propagation' : 'Designer'}
           </button>
-          <span className="hdr-sep" />
-          <button className="file-btn file-btn-accent" onClick={handleExportPDF} disabled={!effectiveElements.length}>Export PDF</button>
+          {appMode === 'design' && (<>
+            <span className="hdr-sep" />
+            <button className="file-btn file-btn-accent" onClick={handleExportPDF} disabled={!effectiveElements.length}>Export PDF</button>
+          </>)}
         </div>
       </header>
 
