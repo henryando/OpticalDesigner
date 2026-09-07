@@ -1938,7 +1938,7 @@ export default function App() {
           {appMode === 'design' && <span className="hdr-sep" />}
           <button className="file-btn" onClick={() => setAppMode(m => m === 'design' ? 'propagation' : 'design')}
             title="Toggle beam propagation sandbox">
-            {appMode === 'design' ? 'Beam Propagation' : 'Designer'}
+            {appMode === 'design' ? 'Beam Propagation (Experimental)' : 'Designer'}
           </button>
           {appMode === 'design' && (<>
             <span className="hdr-sep" />
