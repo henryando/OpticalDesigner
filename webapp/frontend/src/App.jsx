@@ -12,6 +12,9 @@ import {
   parseBeamPathsCsv, serializeBeamPathsCsv,
   parseBgObjectsCsv, serializeBgObjectsCsv,
 } from './utils/csvUtils'
+import {
+  parsePropagationsCsv, serializePropagationsCsv,
+} from './utils/propagationCsv'
 import { supabase } from './supabaseClient'
 import {
   fetchCloudProject, insertCloudProject, updateCloudProject, getCloudProjectUpdatedAt,
@@ -95,9 +98,10 @@ function dedupeElementLabels(elems, seedLabels = []) {
   return { elements: out, renamed }
 }
 
-// Guess which CSV a dropped file is from its name — 'elements' | 'paths' | 'objects' | null
+// Guess which CSV a dropped file is from its name — 'elements' | 'paths' | 'objects' | 'propagations' | null
 function inferCsvKindFromName(filename) {
   const name = filename.toLowerCase()
+  if (/propagation/.test(name)) return 'propagations'
   if (/element/.test(name)) return 'elements'
   if (/beam|path/.test(name)) return 'paths'
   if (/background|object|^bg[-_.]/.test(name)) return 'objects'
@@ -108,6 +112,7 @@ function inferCsvKindFromName(filename) {
 function inferCsvKindFromHeader(text) {
   const firstLine = (text.split(/\r?\n/).find(l => l.trim() && !l.trim().startsWith('#')) || '')
   const cols = firstLine.split(',').map(c => c.trim().toLowerCase())
+  if (cols.includes('optics json') || cols.includes('wavelength nm')) return 'propagations'
   if (cols.includes('label') && cols.includes('type')) return 'elements'
   if (cols.includes('src') && cols.includes('dest')) return 'paths'
   if (cols.includes('group') && cols.includes('x1')) return 'objects'
@@ -166,6 +171,7 @@ export default function App() {
     beamArrowSize:    0.6,
     highlightOrphans: false,
     dimNonPathInEditMode: false,
+    borderAnnotations: false,
   })
 
   const [searchOpen,  setSearchOpen]  = useState(false)
@@ -210,7 +216,15 @@ export default function App() {
   const [session,                 setSession]                 = useState(null)
   const [authModalOpen,           setAuthModalOpen]           = useState(false)
   const [cloudProjectsModalOpen,  setCloudProjectsModalOpen]  = useState(false)
-  const [currentCloudProject,     setCurrentCloudProject]     = useState(null) // {id, name, updatedAt}
+  // {id, name, updatedAt} of the last cloud project this browser opened /
+  // saved to. Persisted to localStorage so "Save to Cloud (update)" stays
+  // available across reloads.
+  const [currentCloudProject,     setCurrentCloudProject]     = useState(() => {
+    try {
+      const raw = localStorage.getItem('optDesign_current_cloud_project')
+      return raw ? JSON.parse(raw) : null
+    } catch { return null }
+  })
   const [cloudBusy,               setCloudBusy]               = useState(false)
   const [cloudError,              setCloudError]              = useState(null)
   const [cloudConflict,           setCloudConflict]           = useState(null) // {updatedByEmail, updatedAt}
@@ -230,10 +244,12 @@ export default function App() {
   const searchInputRef   = useRef(null)
   const cursorPosRef     = useRef({ x: 0, y: 0 })
   const canvasRef        = useRef(null)
+  const propagationModeRef = useRef(null)
   const elemFileRef      = useRef(null)
   const pathFileRef      = useRef(null)
   const bgFileRef        = useRef(null)
   const settingsFileRef  = useRef(null)
+  const propFileRef      = useRef(null)
   const zipFileRef       = useRef(null)
   const lastAddedTypeRef = useRef('')
   const lastAddedOrientationRef = useRef(0)
@@ -260,6 +276,20 @@ export default function App() {
   useEffect(() => {
     document.documentElement.dataset.theme = settings.darkMode ? 'dark' : 'light'
   }, [settings.darkMode])
+
+  // Persist the "which cloud project is open" pointer so reloads keep the
+  // "Save to Cloud (update)" affordance instead of forcing the user through
+  // "Save to Cloud…" (which would create a duplicate).
+  useEffect(() => {
+    try {
+      if (currentCloudProject) {
+        localStorage.setItem('optDesign_current_cloud_project',
+          JSON.stringify(currentCloudProject))
+      } else {
+        localStorage.removeItem('optDesign_current_cloud_project')
+      }
+    } catch {}
+  }, [currentCloudProject])
 
   // Track the logged-in Supabase user, if any. When Supabase isn't
   // configured (`supabase` is null), this is a no-op and every cloud UI
@@ -374,6 +404,9 @@ export default function App() {
       const tag = document.activeElement?.tagName
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
       if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) {
+        // Propagation mode has its own local undo stack; don't fire the
+        // designer's undo while it's visible.
+        if (appMode === 'propagation') return
         e.preventDefault(); undo()
       }
       if ((e.key === 'n' || e.key === 'N') && !e.metaKey && !e.ctrlKey) {
@@ -409,7 +442,7 @@ export default function App() {
     }
     document.addEventListener('keydown', onKeyDown)
     return () => document.removeEventListener('keydown', onKeyDown)
-  }, [history, elements, selectedLabels, addElement, settings.snapSpacing, undo, saveProject, openBulkEdit, bulkEdit])
+  }, [history, elements, selectedLabels, addElement, settings.snapSpacing, undo, saveProject, openBulkEdit, bulkEdit, appMode])
 
   useEffect(() => {
     if (!fileMenuOpen) return
@@ -1202,9 +1235,10 @@ export default function App() {
         settings, config, symbolDefs: processedSymbolDefs, layers, activeLayer,
         bgImages: processedBgImages,
       }, null, 2))
-      if (elements.length)               zip.file('elements.csv',           serializeElementsCsv(elements, overrides, config))
-      if (Object.keys(beamPaths).length) zip.file('beam_paths.csv',         serializeBeamPathsCsv(beamPaths))
-      if (Object.keys(bgGroups).length)  zip.file('background_objects.csv', serializeBgObjectsCsv(bgGroups))
+      if (elements.length)                  zip.file('elements.csv',           serializeElementsCsv(elements, overrides, config))
+      if (Object.keys(beamPaths).length)    zip.file('beam_paths.csv',         serializeBeamPathsCsv(beamPaths))
+      if (Object.keys(bgGroups).length)     zip.file('background_objects.csv', serializeBgObjectsCsv(bgGroups))
+      if (Object.keys(propagations).length) zip.file('propagations.csv',       serializePropagationsCsv(propagations))
       const blob = await zip.generateAsync({ type: 'blob' })
       const zipName = currentProjectName
         ? currentProjectName.replace(/[^a-z0-9_\-. ]/gi, '_').trim() + '.zip'
@@ -1246,14 +1280,15 @@ export default function App() {
       const readZipFile = async name => {
         const f = zip.file(name); return f ? await f.async('string') : null
       }
-      const [settingsText, elemText, pathsText, bgText] = await Promise.all([
+      const [settingsText, elemText, pathsText, bgText, propText] = await Promise.all([
         readZipFile('settings.json'),
         readZipFile('elements.csv'),
         readZipFile('beam_paths.csv'),
         readZipFile('background_objects.csv'),
+        readZipFile('propagations.csv'),
       ])
       setError(null)
-      setZipUpload({ fileName: file.name, settingsText, elemText, pathsText, bgText, customSvgMap, bgImageMap })
+      setZipUpload({ fileName: file.name, settingsText, elemText, pathsText, bgText, propText, customSvgMap, bgImageMap })
       setZipStage('choose')
     } catch (e) {
       setError('Load project failed: ' + e.message)
@@ -1277,7 +1312,7 @@ export default function App() {
   // "Open as New Project": full replace, then persisted as a new, separately-named slot
   function applyZipAsNewProject(name) {
     const trimmed = name.trim() || 'Untitled'
-    const { settingsText, elemText, pathsText, bgText, customSvgMap, bgImageMap } = zipUpload
+    const { settingsText, elemText, pathsText, bgText, propText, customSvgMap, bgImageMap } = zipUpload
 
     let newSettings = { ...settings }, newConfig = DEFAULT_CONFIG, newSymbolDefs = { ...DEFAULT_SYMBOL_DEFS }
     let newLayers = { Default: true }, newActiveLayer = 'Default'
@@ -1328,9 +1363,16 @@ export default function App() {
       Object.keys(parsed).forEach(k => { newVisibleBg[k] = true })
     }
 
+    let newPropagations = {}, newActivePropagation = null
+    if (propText) {
+      newPropagations = parsePropagationsCsv(propText)
+      newActivePropagation = Object.keys(newPropagations)[0] ?? null
+    }
+
     const newState = {
       elements: newElements, overrides: {}, beamPaths: newBeamPaths, bgGroups: newBgGroups,
       visiblePaths: newVisiblePaths, visibleBg: newVisibleBg, bgImages: newBgImages,
+      propagations: newPropagations, activePropagation: newActivePropagation,
       settings: newSettings, config: newConfig,
       symbolDefs: newSymbolDefs, sidebarWidth, layers: newLayers, activeLayer: newActiveLayer,
     }
@@ -1339,10 +1381,10 @@ export default function App() {
     cancelZipUpload()
   }
 
-  // "Overwrite Current Project": elements, paths, objects, then settings — one decision at a time
+  // "Overwrite Current Project": elements, paths, objects, propagations, then settings — one decision at a time
   function startZipOverwriteFlow() {
     setZipStage(null)
-    advanceZipQueue(['elements', 'paths', 'objects', 'settings'])
+    advanceZipQueue(['elements', 'paths', 'objects', 'propagations', 'settings'])
   }
 
   function advanceZipQueue(queue) {
@@ -1377,6 +1419,18 @@ export default function App() {
       if (err) { setError(err); next(); return }
       if (Object.keys(bgGroups).length) setUploadConflict({ kind: 'objects', parsed, next })
       else { applyBgUpload(parsed, false); next() }
+    }
+    if (kind === 'propagations') {
+      // Propagations get merged in (new UUIDs, no label collisions). No
+      // conflict prompt.
+      if (!zipUpload.propText) { next(); return }
+      try {
+        const parsed = parsePropagationsCsv(zipUpload.propText)
+        setPropagations(prev => ({ ...prev, ...parsed }))
+        const firstNew = Object.keys(parsed)[0]
+        if (firstNew) setActivePropagation(firstNew)
+      } catch {}
+      next()
     }
   }
 
@@ -1623,6 +1677,7 @@ export default function App() {
     if (kind === 'elements') loadElementsFile(file)
     else if (kind === 'paths') loadPathsFile(file)
     else if (kind === 'objects') loadBgFile(file)
+    else if (kind === 'propagations') loadPropagationsFile(file)
   }
 
   function handleDroppedFile(file) {
@@ -1676,6 +1731,27 @@ export default function App() {
   async function savePathsCSV() {
     const csv = serializeBeamPathsCsv(beamPaths)
     await triggerSave(new Blob([csv], { type: 'text/csv' }), 'beam_paths.csv', 'text/csv', 'csv')
+  }
+
+  async function savePropagationsCSV() {
+    const csv = serializePropagationsCsv(propagations)
+    await triggerSave(new Blob([csv], { type: 'text/csv' }), 'propagations.csv', 'text/csv', 'csv')
+  }
+
+  function loadPropagationsFile(file) {
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = e => {
+      try {
+        const parsed = parsePropagationsCsv(e.target.result)
+        // Merge into existing propagations (new UUIDs are minted on parse).
+        setPropagations(prev => ({ ...prev, ...parsed }))
+        const firstNew = Object.keys(parsed)[0]
+        if (firstNew) setActivePropagation(firstNew)
+      } catch (err) { setError('Invalid propagations.csv: ' + err.message) }
+    }
+    reader.readAsText(file)
+    propFileRef.current.value = ''
   }
 
   async function saveBgCSV() {
@@ -1998,6 +2074,7 @@ export default function App() {
                 <button className="file-menu-item" onClick={() => { pathFileRef.current.click(); setFileMenuOpen(false) }}>Upload Paths…</button>
                 <button className="file-menu-item" onClick={() => { bgFileRef.current.click(); setFileMenuOpen(false) }}>Upload Objects…</button>
                 <button className="file-menu-item" onClick={() => { settingsFileRef.current.click(); setFileMenuOpen(false) }}>Upload Settings…</button>
+                <button className="file-menu-item" onClick={() => { propFileRef.current.click(); setFileMenuOpen(false) }}>Upload Propagations…</button>
                 <button className="file-menu-item" onClick={() => { zipFileRef.current.click(); setFileMenuOpen(false) }}>Upload Project…</button>
                 <div className="file-menu-sep" />
                 <div className="file-menu-label">Download</div>
@@ -2005,6 +2082,7 @@ export default function App() {
                 <button className="file-menu-item" onClick={() => { savePathsCSV(); setFileMenuOpen(false) }} disabled={!Object.keys(beamPaths).length}>Download Paths</button>
                 <button className="file-menu-item" onClick={() => { saveBgCSV(); setFileMenuOpen(false) }} disabled={!Object.keys(bgGroups).length}>Download Objects</button>
                 <button className="file-menu-item" onClick={() => { saveSettingsJSON(); setFileMenuOpen(false) }}>Download Settings</button>
+                <button className="file-menu-item" onClick={() => { savePropagationsCSV(); setFileMenuOpen(false) }} disabled={!Object.keys(propagations).length}>Download Propagations</button>
                 <button className="file-menu-item" onClick={() => { saveProject(); setFileMenuOpen(false) }}>Download Project</button>
                 <div className="file-menu-sep" />
                 <div className="file-menu-label">Projects</div>
@@ -2065,11 +2143,17 @@ export default function App() {
           {appMode === 'design' && <span className="hdr-sep" />}
           <button className="file-btn" onClick={() => setAppMode(m => m === 'design' ? 'propagation' : 'design')}
             title="Toggle beam propagation sandbox">
-            {appMode === 'design' ? 'Beam Propagation (Experimental)' : 'Designer'}
+            {appMode === 'design' ? 'Beam Propagation' : 'Designer'}
           </button>
           {appMode === 'design' && (<>
             <span className="hdr-sep" />
             <button className="file-btn file-btn-accent" onClick={handleExportPDF} disabled={!effectiveElements.length}>Export PDF</button>
+          </>)}
+          {appMode === 'propagation' && (<>
+            <span className="hdr-sep" />
+            <button className="file-btn file-btn-accent"
+              onClick={() => propagationModeRef.current?.exportPdf()}
+              disabled={!activePropagation}>Export PDF</button>
           </>)}
         </div>
       </header>
@@ -2098,6 +2182,7 @@ export default function App() {
       <div className="app-body" style={{ position: 'relative' }}>
         {appMode === 'propagation' && (
           <BeamPropagationMode
+            ref={propagationModeRef}
             propagations={propagations}
             activePropagation={activePropagation}
             onSetPropagations={setPropagations}
@@ -2533,6 +2618,7 @@ export default function App() {
               <button className="small-btn" onClick={() => { applyInferredCsv('elements', dropAmbiguous.file); setDropAmbiguous(null) }}>Elements</button>
               <button className="small-btn" onClick={() => { applyInferredCsv('paths', dropAmbiguous.file); setDropAmbiguous(null) }}>Beam Paths</button>
               <button className="small-btn" onClick={() => { applyInferredCsv('objects', dropAmbiguous.file); setDropAmbiguous(null) }}>Background Objects</button>
+              <button className="small-btn" onClick={() => { applyInferredCsv('propagations', dropAmbiguous.file); setDropAmbiguous(null) }}>Propagations</button>
               <button className="small-btn" onClick={() => setDropAmbiguous(null)}>Cancel</button>
             </div>
           </div>
@@ -2699,6 +2785,8 @@ export default function App() {
         onChange={e => loadBgFile(e.target.files[0])} />
       <input ref={settingsFileRef} type="file" accept=".json" style={{ display: 'none' }}
         onChange={e => loadSettingsFile(e.target.files[0])} />
+      <input ref={propFileRef} type="file" accept=".csv" style={{ display: 'none' }}
+        onChange={e => loadPropagationsFile(e.target.files[0])} />
       <input ref={zipFileRef} type="file" accept=".zip" style={{ display: 'none' }}
         onChange={e => handleProjectZipFile(e.target.files[0])} />
     </div>

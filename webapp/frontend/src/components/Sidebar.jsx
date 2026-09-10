@@ -849,6 +849,17 @@ export default function Sidebar({
                 onChange={e => set('showAnnotation', e.target.checked)} />
               <span>Show annotation</span>
             </label>
+            <label className="setting-toggle">
+              <input type="checkbox" checked={settings.borderAnnotations ?? false}
+                onChange={e => set('borderAnnotations', e.target.checked)} />
+              <span>Send labels to border</span>
+            </label>
+            {settings.borderAnnotations && (
+              <p style={{ fontSize: 10, color: 'var(--text-muted)', margin: '2px 0 0' }}>
+                Labels move to the map border with a leader arrow to each element.
+                Drag a label to slide it along the border; positions persist per element.
+              </p>
+            )}
           </section>
 
           <section className="sidebar-section">

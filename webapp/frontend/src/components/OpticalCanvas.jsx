@@ -49,13 +49,35 @@ const OpticalCanvas = forwardRef(function OpticalCanvas({
   // origin_x/y = coordinate value shown at the bottom-left corner of the table
   const origin_x = config.origin_x ?? 0
   const origin_y = config.origin_y ?? 0
-  const minX = origin_x - PAD
-  const minY = origin_y - PAD
-  const svgW = (table_length + 2 * PAD) * SCALE
-  const svgH = (table_width  + 2 * PAD) * SCALE
+  // Border-annotation mode parks labels in the margin outside the table, so it
+  // needs a much wider pad than the default 1-inch breathing room.
+  const pad = settings.borderAnnotations ? 8 : PAD
+  const minX = origin_x - pad
+  const minY = origin_y - pad
+  const svgW = (table_length + 2 * pad) * SCALE
+  const svgH = (table_width  + 2 * pad) * SCALE
 
   const px = useCallback(physX => (physX - minX) * SCALE, [minX, SCALE])
   const py = useCallback(physY => svgH - (physY - minY) * SCALE, [svgH, minY, SCALE])
+
+  // Physical-coordinate edges of the table border, used by the "send labels to
+  // the border" annotation mode.
+  const bx0 = origin_x, bx1 = origin_x + table_length
+  const by0 = origin_y, by1 = origin_y + table_width
+
+  // Project a physical point to the nearest point on the table border, returning
+  // which edge it landed on. Dragging a border label past an edge re-snaps it to
+  // whichever edge is now closest, so labels slide along and hop between edges.
+  const snapToBorder = useCallback((x, y) => {
+    const cx = Math.max(bx0, Math.min(bx1, x))
+    const cy = Math.max(by0, Math.min(by1, y))
+    const dL = cx - bx0, dR = bx1 - cx, dB = cy - by0, dT = by1 - cy
+    const m = Math.min(dL, dR, dB, dT)
+    if (m === dL) return { edge: 'left',   x: bx0, y: cy }
+    if (m === dR) return { edge: 'right',  x: bx1, y: cy }
+    if (m === dB) return { edge: 'bottom', x: cx,  y: by0 }
+    return { edge: 'top', x: cx, y: by1 }
+  }, [bx0, bx1, by0, by1])
 
   function screenToSVG(screenX, screenY) {
     const rect = svgRef.current.getBoundingClientRect()
@@ -202,6 +224,14 @@ const OpticalCanvas = forwardRef(function OpticalCanvas({
     }
   }
 
+  // Border-annotation label drag: slide the label along the map border. History
+  // is only pushed once motion actually starts, so a plain click just selects.
+  function onLabelMouseDown(e, el) {
+    if (e.button !== 0 || editingPath || editingBgGroup) return
+    e.stopPropagation()
+    drag.current = { type: 'labelDrag', label: el.label, shiftKey: e.shiftKey, started: false }
+  }
+
   function onBgMouseDown(e) {
     if (e.button !== 0 || drag.current) return
 
@@ -265,6 +295,14 @@ const OpticalCanvas = forwardRef(function OpticalCanvas({
       if (Math.abs(dx) > 2 || Math.abs(dy) > 2) drag.current.hasMoved = true
       drag.current.lastX = e.clientX; drag.current.lastY = e.clientY
       setTransform(t => ({ ...t, x: t.x + dx, y: t.y + dy }))
+      return
+    }
+
+    if (type === 'labelDrag') {
+      if (!drag.current.started) { onStartEdit(); drag.current.started = true }
+      const phys = svgToPhys(screenToSVG(e.clientX, e.clientY), 1, true)
+      const bp = snapToBorder(phys.x, phys.y)
+      onUpdateEdit(drag.current.label, { labelPos: { x: bp.x, y: bp.y } })
       return
     }
 
@@ -381,6 +419,10 @@ const OpticalCanvas = forwardRef(function OpticalCanvas({
       // No drag threshold crossed — treat as a click
       onSelectLabel(drag.current.el.label, drag.current.shiftKey)
     }
+    if (drag.current?.type === 'labelDrag' && !drag.current.started) {
+      // Clicked a border label without dragging — select its element.
+      onSelectLabel(drag.current.label, drag.current.shiftKey)
+    }
     drag.current = null
   }
 
@@ -399,16 +441,16 @@ const OpticalCanvas = forwardRef(function OpticalCanvas({
   // ── Grid ──────────────────────────────────────────────────────────────────
   const gridLines = useMemo(() => {
     const lines = []
-    for (let gx = Math.ceil(minX); gx <= minX + table_length + 2 * PAD; gx++) {
+    for (let gx = Math.ceil(minX); gx <= minX + table_length + 2 * pad; gx++) {
       lines.push(<line key={`gx${gx}`} x1={px(gx)} y1={0} x2={px(gx)} y2={svgH}
         stroke={theme.gridLine} strokeWidth={settings.gridLineWidth} />)
     }
-    for (let gy = Math.ceil(minY); gy <= minY + table_width + 2 * PAD; gy++) {
+    for (let gy = Math.ceil(minY); gy <= minY + table_width + 2 * pad; gy++) {
       lines.push(<line key={`gy${gy}`} x1={0} y1={py(gy)} x2={svgW} y2={py(gy)}
         stroke={theme.gridLine} strokeWidth={settings.gridLineWidth} />)
     }
     return lines
-  }, [minX, minY, svgW, svgH, table_length, table_width, px, py, theme.gridLine, settings.gridLineWidth])
+  }, [minX, minY, svgW, svgH, table_length, table_width, pad, px, py, theme.gridLine, settings.gridLineWidth])
 
   const elemByLabel = useMemo(() => {
     const m = {}; elements.forEach(el => { m[el.label] = el }); return m
@@ -743,6 +785,98 @@ const OpticalCanvas = forwardRef(function OpticalCanvas({
     return out
   }
 
+  // ── Border-annotation rendering ───────────────────────────────────────────
+  // When settings.borderAnnotations is on, every element's label is drawn out at
+  // the table border (near the element's nearest border point, or wherever the
+  // user has dragged it — stored in el.labelPos) with a leader arrow pointing
+  // back to the element. Text is right-aligned on the left border, left-aligned
+  // on the right border, and centred on the top/bottom borders.
+  function renderBorderAnnotations() {
+    if (!settings.borderAnnotations) return null
+    if (!(settings.showONumber || settings.showType || settings.showAnnotation)) return null
+
+    const fontSize = Math.max(3, 8 / transform.k)
+    const lh       = fontSize * 1.2
+    const gap      = Math.max(3, 6 / transform.k)
+    const lineW    = Math.max(0.4, 0.7 / transform.k)
+    const arrowK   = Math.max(0.7, 1 / transform.k)
+    // Keep clear of the coordinate axis labels drawn just outside the table.
+    const coordX   = settings.showCoords ? Math.max(12, 20 / transform.k) : 0
+    const coordY   = settings.showCoords ? Math.max(8,  14 / transform.k) : 0
+
+    return elements.map(el => {
+      const parts = [
+        settings.showONumber    ? el.label      : null,
+        settings.showType       ? el.type       : null,
+        settings.showAnnotation ? el.Annotation : null,
+      ].filter(v => v != null && String(v).trim() !== '')
+      if (!parts.length) return null
+
+      const lp  = el.labelPos
+      const src = (lp && isFinite(lp.x) && isFinite(lp.y)) ? lp : { x: el.x, y: el.y }
+      const bp  = snapToBorder(src.x, src.y)
+
+      const ax = px(bp.x), ay = py(bp.y)   // anchor point on the border
+      const ex = px(el.x), ey = py(el.y)   // element centre
+
+      // Leader line starts one graph unit in from the border, toward the label,
+      // so the arrow tail sits close to the text rather than out at the frame.
+      const lead = SCALE
+      const lx = bp.edge === 'left' ? ax - lead : bp.edge === 'right' ? ax + lead : ax
+      const ly = bp.edge === 'top'  ? ay - lead : bp.edge === 'bottom' ? ay + lead : ay
+
+      const dx = ex - lx, dy = ey - ly
+      const dist = Math.hypot(dx, dy) || 1
+      const back = Math.min(dist, 10)
+      const hx = ex - dx / dist * back
+      const hy = ey - dy / dist * back
+      const ang = Math.atan2(dy, dx) * 180 / Math.PI
+
+      const isSel  = selectedLabels?.has(el.label) ?? false
+      const stroke = isSel ? theme.labelColor : theme.labelColor2
+
+      let anchor, tx, firstY, dir
+      if (bp.edge === 'left')       { anchor = 'end';    tx = ax - gap - coordX; firstY = ay - (parts.length - 1) / 2 * lh; dir = 1 }
+      else if (bp.edge === 'right') { anchor = 'start';  tx = ax + gap + coordX; firstY = ay - (parts.length - 1) / 2 * lh; dir = 1 }
+      else if (bp.edge === 'top')   { anchor = 'middle'; tx = ax; firstY = ay - gap - coordY - fontSize * 0.5; dir = -1 }
+      else                          { anchor = 'middle'; tx = ax; firstY = ay + gap + coordY + fontSize * 0.5; dir = 1 }
+
+      const ys = parts.map((_, i) => firstY + dir * i * lh)
+      const yMin = Math.min(...ys) - lh / 2
+      const yMax = Math.max(...ys) + lh / 2
+      const maxChars = Math.max(...parts.map(p => String(p).length), 1)
+      const bw = maxChars * fontSize * 0.62 + gap
+      const rx = anchor === 'end' ? tx - bw : anchor === 'start' ? tx : tx - bw / 2
+
+      return (
+        <g key={`ba-${el.label}`}>
+          <line x1={lx} y1={ly} x2={hx} y2={hy}
+            stroke={stroke} strokeWidth={lineW} strokeOpacity={0.7}
+            style={{ pointerEvents: 'none' }} />
+          <polygon points="3.2,0 -2.6,-2 -2.6,2"
+            transform={`translate(${hx},${hy}) rotate(${ang}) scale(${arrowK})`}
+            fill={stroke} fillOpacity={0.85}
+            style={{ pointerEvents: 'none' }} />
+          <circle cx={lx} cy={ly} r={lineW * 2.2} fill={stroke} fillOpacity={0.7}
+            style={{ pointerEvents: 'none' }} />
+          <g onMouseDown={e => onLabelMouseDown(e, el)}
+             style={{ cursor: 'grab' }}>
+            <rect x={rx - gap} y={yMin - gap / 2} width={bw + 2 * gap} height={yMax - yMin + gap}
+              fill="transparent" />
+            {parts.map((text, i) => (
+              <text key={i} x={tx} y={firstY + dir * i * lh}
+                textAnchor={anchor} dominantBaseline="middle" fontSize={fontSize}
+                fill={i === 0 ? theme.labelColor : theme.labelColor2}
+                style={{ userSelect: 'none' }}>
+                {text}
+              </text>
+            ))}
+          </g>
+        </g>
+      )
+    })
+  }
+
   // ── Expose exportPDF ──────────────────────────────────────────────────────
   useImperativeHandle(ref, () => ({
     exportPDF: (projectName) => exportSVGToPDF(svgRef.current, svgW, svgH, transform.k, settings.pdfFontSize ?? 4, projectName, settings.pdfLabelYOffset ?? 0),
@@ -750,8 +884,8 @@ const OpticalCanvas = forwardRef(function OpticalCanvas({
       const targets = elements.filter(el => labels.has(el.label))
       if (!targets.length) return
       // compute SVG-space bounding centre directly (avoids stale px/py closure)
-      const _px = x => (x - (config.origin_x ?? 0) + PAD) * (settings.scale ?? 10)
-      const _py = y => ((config.table_width + 2 * PAD) - (y - (config.origin_y ?? 0) + PAD)) * (settings.scale ?? 10)
+      const _px = x => (x - (config.origin_x ?? 0) + pad) * (settings.scale ?? 10)
+      const _py = y => ((config.table_width + 2 * pad) - (y - (config.origin_y ?? 0) + pad)) * (settings.scale ?? 10)
       const xs = targets.map(e => _px(e.x))
       const ys = targets.map(e => _py(e.y))
       const cx = (Math.min(...xs) + Math.max(...xs)) / 2
@@ -760,7 +894,7 @@ const OpticalCanvas = forwardRef(function OpticalCanvas({
       if (!rect) return
       setTransform(t => ({ k: t.k, x: rect.width / 2 - cx * t.k, y: rect.height / 2 - cy * t.k }))
     },
-  }), [svgW, svgH, elements, config, settings, transform.k])
+  }), [svgW, svgH, elements, config, settings, pad, transform.k])
 
   // ── Cursor ────────────────────────────────────────────────────────────────
   const bgCursor = (editingPath || editingBgGroup)
@@ -827,7 +961,7 @@ const OpticalCanvas = forwardRef(function OpticalCanvas({
                   <circle r={10} fill="none" stroke={elColor}
                     strokeWidth={2} strokeDasharray="4 2" opacity={0.9} />
                 )}
-                {(settings.showONumber || settings.showType || settings.showAnnotation) && (() => {
+                {!settings.borderAnnotations && (settings.showONumber || settings.showType || settings.showAnnotation) && (() => {
                   const parts = [
                     settings.showONumber   ? el.label      : null,
                     settings.showType      ? el.type       : null,
@@ -850,6 +984,8 @@ const OpticalCanvas = forwardRef(function OpticalCanvas({
               </g>
             )
           })}
+
+          {settings.borderAnnotations && <g>{renderBorderAnnotations()}</g>}
 
           {/* Box / lasso selection overlay */}
           {selectionDrag?.type === 'box' && (() => {

@@ -3,7 +3,7 @@
 // separate x/y axes with cylindrical support), but the UI is intentionally
 // minimal so the piece is easy to iterate on.
 
-import { useMemo, useState, useRef } from 'react'
+import { useMemo, useState, useRef, useEffect, useImperativeHandle, forwardRef } from 'react'
 import {
   qFromBeam, sampleWofZ2D, radiusFromQ, propagateFreeSpace, propagateThinLens,
   nmToMm, mradToRad,
@@ -51,6 +51,10 @@ function makeDefaultPropagation(name = 'New propagation') {
     name,
     splitXY: false,
     combinedXY: true,        // when splitXY: overlay x + y on one plot vs stack two.
+    hidePassthroughOnPlot: false,
+    hidePassthroughInTable: false,
+    plotWidth: 720,
+    plotHeight: 240,
     wavelength_nm: DEFAULT_LAMBDA_NM,
     distance_mm: 500,
     w0x_mm: DEFAULT_W0_MM, divx_mrad: 0,
@@ -72,7 +76,47 @@ function normalizePropagation(p) {
   if (out.w0x_mm == null) out.w0x_mm = DEFAULT_W0_MM
   if (out.w0y_mm == null) out.w0y_mm = out.w0x_mm
   if (out.combinedXY == null) out.combinedXY = true
+  if (out.hidePassthroughOnPlot == null) out.hidePassthroughOnPlot = false
+  if (out.hidePassthroughInTable == null) out.hidePassthroughInTable = false
+  if (out.plotWidth == null)  out.plotWidth = 720
+  if (out.plotHeight == null) out.plotHeight = 240
   return out
+}
+
+// ── Focal-length inference from a designer element ─────────────────────────
+// Tries, in order:
+//   1. The element's f_mm field (numeric).
+//   2. A "Focal Length" custom column (string with optional units).
+//   3. The Annotation field, parsed for "f=<num><unit>" or a bare "<num><unit>".
+// Supported units: mm (default), cm, m, in. Returns NaN if nothing matched.
+function inferFocalLengthMm(el) {
+  if (!el) return NaN
+  const num = Number(el.f_mm)
+  if (Number.isFinite(num)) return num
+  const candidates = [
+    el['Focal Length'], el['focal length'], el['focal_length'], el.f,
+    el.Annotation, el.annotation,
+  ].filter(s => typeof s === 'string' && s.trim())
+  for (const raw of candidates) {
+    const parsed = parseLengthMm(raw)
+    if (Number.isFinite(parsed)) return parsed
+  }
+  return NaN
+}
+
+function parseLengthMm(text) {
+  // Prefer "f = 100 mm" pattern; fall back to any leading "<num><unit>".
+  const m = /f\s*=\s*(-?\d+(?:\.\d+)?)\s*(mm|cm|m|in|")?/i.exec(text)
+    || /(-?\d+(?:\.\d+)?)\s*(mm|cm|m|in|")\b/i.exec(text)
+  if (!m) return NaN
+  const n = parseFloat(m[1])
+  if (!Number.isFinite(n)) return NaN
+  const unit = (m[2] || 'mm').toLowerCase()
+  if (unit === 'mm') return n
+  if (unit === 'cm') return n * 10
+  if (unit === 'm')  return n * 1000
+  if (unit === 'in' || unit === '"') return n * 25.4
+  return NaN
 }
 
 // ── Path finding on directed beam-path edges ───────────────────────────────
@@ -364,9 +408,197 @@ function ImportGraphModal({ beamPaths, elements, symbolDefs, onClose, onImport }
 // Renders one or two beam-radius traces on a single SVG. Each optic is
 // drawn as either a real biconvex lens SVG (positive f), a small biconcave
 // icon (negative f), or a faint dot marker (passthrough).
-function BeamPlot({ traces, events, testPoints, zTotal, height = 220, title }) {
-  const W = 720, H = height, PAD_L = 52, PAD_R = 16, PAD_T = 26, PAD_B = 34
+// ── Symbol SVG inlining for PDF export ─────────────────────────────────────
+// svg2pdf can't follow href on <image> tags, so decorative lens SVGs would
+// otherwise vanish from the export. Fetch each href once, cache the parsed
+// content, and replace <image> with a <g transform="translate(x,y) scale(sx,sy)">
+// wrapping the source SVG's paths.
+const _symbolCache = new Map()
+async function loadSymbolSvg(href) {
+  if (_symbolCache.has(href)) return _symbolCache.get(href)
+  const p = fetch(href).then(r => r.text()).then(txt => {
+    const doc = new DOMParser().parseFromString(txt, 'image/svg+xml')
+    return doc.documentElement
+  }).catch(() => null)
+  _symbolCache.set(href, p)
+  return p
+}
+// Fallback used when we can't inline a symbol — a tinted rect placeholder
+// so the plot doesn't just have a blank spot where a lens should be.
+function placeholderForImage(im) {
+  const x = parseFloat(im.getAttribute('x') || 0)
+  const y = parseFloat(im.getAttribute('y') || 0)
+  const w = parseFloat(im.getAttribute('width')  || 12)
+  const h = parseFloat(im.getAttribute('height') || 34)
+  const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect')
+  rect.setAttribute('x', x); rect.setAttribute('y', y)
+  rect.setAttribute('width', w); rect.setAttribute('height', h)
+  rect.setAttribute('rx', 2)
+  rect.setAttribute('fill', '#e0b04022')
+  rect.setAttribute('stroke', '#e0b040')
+  return rect
+}
+async function inlineSymbolImages(root) {
+  const imgs = [...root.querySelectorAll('image')]
+  await Promise.all(imgs.map(async im => {
+    const href = im.getAttribute('href') || im.getAttribute('xlink:href') || ''
+    if (!href) { im.replaceWith(placeholderForImage(im)); return }
+    let src
+    try { src = await loadSymbolSvg(href) } catch { src = null }
+    if (!src || src.tagName !== 'svg') { im.replaceWith(placeholderForImage(im)); return }
+    // Read the source SVG's viewBox — may have a non-zero origin.
+    let vx = 0, vy = 0, sw = 0, sh = 0
+    const vb = src.getAttribute('viewBox')
+    if (vb) {
+      const p = vb.trim().split(/[,\s]+/).map(parseFloat)
+      if (p.length >= 4 && p.every(Number.isFinite)) [vx, vy, sw, sh] = p
+    }
+    if (!sw) sw = parseFloat(src.getAttribute('width'))  || 10
+    if (!sh) sh = parseFloat(src.getAttribute('height')) || 10
+    // Target rectangle from the <image>'s x/y/width/height, uniform scale
+    // ("meet"-style) matching preserveAspectRatio default.
+    const ix = parseFloat(im.getAttribute('x') || 0)
+    const iy = parseFloat(im.getAttribute('y') || 0)
+    const iw = parseFloat(im.getAttribute('width')  || sw)
+    const ih = parseFloat(im.getAttribute('height') || sh)
+    const scale = Math.min(iw / sw, ih / sh)
+    const offX = ix + (iw - sw * scale) / 2 - vx * scale
+    const offY = iy + (ih - sh * scale) / 2 - vy * scale
+    const g = document.createElementNS('http://www.w3.org/2000/svg', 'g')
+    g.setAttribute('transform', `translate(${offX},${offY}) scale(${scale})`)
+    // Promote inline stop-color / stop-opacity styles to attributes — svg2pdf
+    // reads them from attributes, not from parsed CSS.
+    src.querySelectorAll('stop').forEach(stop => {
+      const s = stop.getAttribute('style') || ''
+      const color   = s.match(/stop-color\s*:\s*([^;]+)/)?.[1]?.trim()
+      const opacity = s.match(/stop-opacity\s*:\s*([^;]+)/)?.[1]?.trim()
+      if (color   && !stop.hasAttribute('stop-color'))   stop.setAttribute('stop-color',   color)
+      if (opacity && !stop.hasAttribute('stop-opacity')) stop.setAttribute('stop-opacity', opacity)
+    })
+    // Copy every element child (skip comments and text). Also skip any nested
+    // <image> — svg2pdf can't render raster embeds, and they'd otherwise
+    // silently break the whole clone.
+    for (const child of [...src.children]) {
+      if (child.tagName?.toLowerCase() === 'image') continue
+      g.appendChild(child.cloneNode(true))
+    }
+    im.replaceWith(g)
+  }))
+}
+
+// Given a maximum value, return "nice" round ticks from 0 to max at 1/2/5
+// steps of a power of 10 (matches how humans axis-label — always ends in
+// integers or a single decimal, never something like 1.28).
+function niceTicks(maxValue, targetCount = 5) {
+  if (!Number.isFinite(maxValue) || maxValue <= 0) return [0]
+  const rough = maxValue / targetCount
+  const mag = Math.pow(10, Math.floor(Math.log10(rough)))
+  const norm = rough / mag
+  let step
+  if (norm < 1.5)      step = 1
+  else if (norm < 3.5) step = 2
+  else if (norm < 7.5) step = 5
+  else                 step = 10
+  step *= mag
+  const ticks = []
+  for (let t = 0; t <= maxValue + step * 0.0001; t += step) {
+    // Guard against floating drift so labels like 0.30000000004 don't show.
+    ticks.push(Math.round(t / step) * step)
+  }
+  return ticks
+}
+function tickLabel(v, step) {
+  // Pick just enough decimals to distinguish adjacent ticks. For step >= 1,
+  // no decimals; step 0.1 → 1 decimal; step 0.01 → 2 decimals; and so on.
+  if (step >= 1)     return v.toFixed(0)
+  if (step >= 0.1)   return v.toFixed(1)
+  if (step >= 0.01)  return v.toFixed(2)
+  return v.toFixed(3)
+}
+
+function BeamPlot({ traces, events, testPoints, zTotal, width = 720, height = 240, title, onDragOptic, onResize }) {
+  const W = Math.max(360, width), H = Math.max(160, height)
+  const PAD_L = 52, PAD_R = 16, PAD_B = 34
+  const PAD_T_BASE = 42
+  // ── Label-collision layout ──────────────────────────────────────────────
+  // Assign each optic a "row" so no two labels overlap horizontally. Greedy
+  // first-fit: sort by z, place at the lowest row whose extents so far don't
+  // collide with the new label's horizontal footprint. Grow PAD_T by one
+  // row-height for each extra row used so labels always fit above the plot.
+  // Each label is TWO lines tall (label + f=Xmm), so the row spacing has to
+  // clear both lines plus a gap. 22 px = 11 px per line × 2.
+  const ROW_H = 22              // vertical spacing between label rows (px)
+  const CHAR_W = 5.5            // rough per-character width at fontSize=10
+  const eventLayout = (() => {
+    const rowByIndex = new Array(events.length).fill(0)
+    const rows = []             // rows[r] = array of [xMin, xMax] extents
+    const xForZ = z => PAD_L + (z / Math.max(1e-6, zTotal)) * (W - PAD_L - PAD_R)
+    // Sort indices by z but write rowByIndex back at the original position.
+    const order = events.map((_, i) => i).sort((a, b) => events[a].z_mm - events[b].z_mm)
+    for (const i of order) {
+      const ev = events[i]
+      const line1 = ev.elementLabel ?? ev.label ?? 'L'
+      const line2 = (ev.kind === 'lens' && Number.isFinite(Number(ev.f)) && Number(ev.f) !== 0)
+        ? `f=${ev.f}mm` : ''
+      const charW = Math.max(line1.length, line2.length)
+      const half = charW * CHAR_W / 2 + 3
+      const cx = xForZ(ev.z_mm)
+      const xMin = cx - half, xMax = cx + half
+      let r = 0
+      for (;; r++) {
+        const bucket = rows[r] || (rows[r] = [])
+        const collides = bucket.some(([a, b]) => !(xMax < a || xMin > b))
+        if (!collides) { bucket.push([xMin, xMax]); break }
+      }
+      rowByIndex[i] = r
+    }
+    return { rowByIndex, maxRow: rows.length ? rows.length - 1 : 0 }
+  })()
+  const PAD_T = PAD_T_BASE + eventLayout.maxRow * ROW_H
   const plotW = W - PAD_L - PAD_R, plotH = H - PAD_T - PAD_B
+  const svgRef = useRef(null)
+  const resizeRef = useRef(null)
+  // Drag state (mutable ref, not React state, so drag doesn't spam re-renders):
+  //   { opticId, startClientX, startClientY, startZ, startF, axis }
+  // axis: null (undecided) | 'x' (change z) | 'y' (change f)
+  const dragRef = useRef(null)
+  // Convert screen x (in SVG local coords) to a physical z in mm.
+  const xToZ = px => Math.max(0, Math.min(zTotal, (px - PAD_L) / plotW * zTotal))
+  // Vertical drag → focal-length change. Positive dy (dragging DOWN) shortens
+  // the focal length; positive up lengthens it. Scale is chosen so a full
+  // plot-height drag roughly halves / doubles a typical focal length.
+  const F_PER_PIXEL = 2   // mm of f per pixel of vertical drag
+  const AXIS_LOCK_PX = 4  // move this far to lock a direction
+  function onSvgMouseMove(e) {
+    // Plot resize drag takes precedence.
+    const r = resizeRef.current
+    if (r) {
+      const nw = Math.max(360, r.startW + (e.clientX - r.startClientX))
+      const nh = Math.max(160, r.startH + (e.clientY - r.startClientY))
+      onResize?.(nw, nh)
+      return
+    }
+    const d = dragRef.current
+    if (!d) return
+    const rect = svgRef.current?.getBoundingClientRect()
+    if (!rect) return
+    const dx = e.clientX - d.startClientX
+    const dy = e.clientY - d.startClientY
+    // Lock a direction on the first meaningful movement.
+    if (!d.axis) {
+      if (Math.abs(dx) < AXIS_LOCK_PX && Math.abs(dy) < AXIS_LOCK_PX) return
+      d.axis = Math.abs(dx) >= Math.abs(dy) ? 'x' : 'y'
+    }
+    if (d.axis === 'x') {
+      const localX = e.clientX - rect.left
+      onDragOptic?.(d.opticId, { z_mm: xToZ(localX) })
+    } else if (d.axis === 'y' && Number.isFinite(d.startF)) {
+      // Up = larger f, down = smaller.
+      const newF = d.startF - dy * F_PER_PIXEL
+      onDragOptic?.(d.opticId, { f_mm: Math.round(newF * 10) / 10 })
+    }
+  }
+  function endDrag() { dragRef.current = null; resizeRef.current = null }
   // Pick a y-axis maximum that fits the widest sample across all traces
   // with a small headroom so the beam never touches the top edge.
   const dataMax = Math.max(0.01, ...traces.flatMap(t =>
@@ -381,7 +613,8 @@ function BeamPlot({ traces, events, testPoints, zTotal, height = 220, title }) {
   const iconTop = PAD_T + 4
 
   return (
-    <svg className="prop-plot" width={W} height={H}>
+    <svg className="prop-plot" width={W} height={H} ref={svgRef}
+      onMouseMove={onSvgMouseMove} onMouseUp={endDrag} onMouseLeave={endDrag}>
       {/* title + legend row */}
       {title && (
         <text x={PAD_L} y={14} fontSize={12} fill="var(--text)" fontWeight={600}>{title}</text>
@@ -401,54 +634,70 @@ function BeamPlot({ traces, events, testPoints, zTotal, height = 220, title }) {
       <line x1={PAD_L} y1={PAD_T + plotH} x2={PAD_L + plotW} y2={PAD_T + plotH} stroke="var(--text-muted)" />
       <line x1={PAD_L} y1={PAD_T} x2={PAD_L} y2={PAD_T + plotH} stroke="var(--text-muted)" />
 
-      {/* y ticks */}
-      {[0, 0.25, 0.5, 0.75, 1].map(f => {
-        const w = f * maxW
-        return (
-          <g key={`y${f}`}>
+      {/* y ticks — snap to nice round values (1, 2, 5 × 10ⁿ) */}
+      {(() => {
+        const ticks = niceTicks(maxW)
+        const step = ticks.length > 1 ? ticks[1] - ticks[0] : 1
+        return ticks.map(w => (
+          <g key={`y${w}`}>
             <line x1={PAD_L - 3} y1={yOf(w)} x2={PAD_L} y2={yOf(w)} stroke="var(--text-muted)" />
             <text x={PAD_L - 6} y={yOf(w)} textAnchor="end" dominantBaseline="middle"
-              fontSize={10} fill="var(--text-muted)">{w.toFixed(2)}</text>
+              fontSize={10} fill="var(--text-muted)">{tickLabel(w, step)}</text>
           </g>
-        )
-      })}
-      {/* x ticks */}
-      {[0, 0.25, 0.5, 0.75, 1].map(f => {
-        const z = f * zTotal
-        return (
-          <g key={`x${f}`}>
+        ))
+      })()}
+      {/* x ticks — snap to nice round values as well */}
+      {(() => {
+        const ticks = niceTicks(zTotal)
+        const step = ticks.length > 1 ? ticks[1] - ticks[0] : 1
+        return ticks.map(z => (
+          <g key={`x${z}`}>
             <line x1={xOf(z)} y1={PAD_T + plotH} x2={xOf(z)} y2={PAD_T + plotH + 3} stroke="var(--text-muted)" />
             <text x={xOf(z)} y={PAD_T + plotH + 15} textAnchor="middle"
-              fontSize={10} fill="var(--text-muted)">{z.toFixed(0)}</text>
+              fontSize={10} fill="var(--text-muted)">{tickLabel(z, step)}</text>
           </g>
-        )
-      })}
+        ))
+      })()}
       <text x={PAD_L + plotW / 2} y={H - 6} textAnchor="middle" fontSize={11} fill="var(--text-muted)">z (mm)</text>
       <text x={14} y={PAD_T + plotH / 2} textAnchor="middle" fontSize={11} fill="var(--text-muted)"
         transform={`rotate(-90 14 ${PAD_T + plotH / 2})`}>w (mm, radius)</text>
 
-      {/* Optic markers + icons */}
+      {/* Optic markers + icons — labels are split onto two lines
+          (label + shape, then f=Xmm) so long labels don't collide with
+          adjacent lenses. Lenses can be dragged horizontally to change z. */}
       {events.map((ev, i) => {
         const isLens = ev.kind === 'lens'
         const isNegative = isLens && Number(ev.f) < 0
         const cx = xOf(ev.z_mm)
-        const labelText = `${ev.elementLabel ?? ev.label ?? 'L'}${
+        const line1 = `${ev.elementLabel ?? ev.label ?? 'L'}${
           isLens && ev.shape && ev.shape !== 'spherical' ? ` (${ev.shape})` : ''
-        }${isLens && Number.isFinite(ev.f) && ev.f !== 0 ? `  f=${ev.f}mm` : ''}`
+        }`
+        const line2 = (isLens && Number.isFinite(ev.f) && ev.f !== 0)
+          ? `f=${ev.f}mm` : ''
         const stroke = isLens ? '#e0b040' : 'var(--text-muted)'
+        const draggable = !!onDragOptic && ev.opticId != null
+        const beginDrag = draggable ? (e => {
+          e.stopPropagation(); e.preventDefault()
+          dragRef.current = {
+            opticId: ev.opticId,
+            startClientX: e.clientX,
+            startClientY: e.clientY,
+            startZ: ev.z_mm,
+            startF: Number(ev.f),
+            axis: null,   // decided on first mousemove
+          }
+        }) : undefined
         return (
           <g key={`e${i}`}>
             <line x1={cx} y1={PAD_T + LENS_H + 4} x2={cx} y2={PAD_T + plotH}
               stroke={stroke} strokeDasharray="4 3" strokeWidth={1}
               opacity={isLens ? 0.6 : 0.3} />
             {isLens && !isNegative ? (
-              // Real biconvex lens SVG from the component library, sized to fit.
               <image href="/symbols/b-lens1.svg"
                 x={cx - LENS_W / 2} y={iconTop}
                 width={LENS_W} height={LENS_H}
                 preserveAspectRatio="xMidYMid meet" />
             ) : isLens ? (
-              // Biconcave glyph for negative f — inverse arcs.
               (() => {
                 const rx = LENS_W / 2, ry = LENS_H / 2, ccy = iconTop + ry
                 return (
@@ -460,8 +709,33 @@ function BeamPlot({ traces, events, testPoints, zTotal, height = 220, title }) {
             ) : (
               <circle cx={cx} cy={iconTop + LENS_H / 2} r={3} fill="var(--text-muted)" opacity={0.55} />
             )}
-            <text x={cx} y={iconTop - 4} textAnchor="middle" fontSize={10}
-              fill={stroke}>{labelText}</text>
+            {/* Two-line label — rowOffset stacks labels vertically when
+                adjacent optics would otherwise collide. */}
+            {(() => {
+              const row = eventLayout.rowByIndex[i] ?? 0
+              const rowOffset = row * ROW_H
+              return (
+                <>
+                  <text x={cx} y={iconTop - 15 - rowOffset} textAnchor="middle" fontSize={10}
+                    fill={stroke}>{line1}</text>
+                  {line2 && (
+                    <text x={cx} y={iconTop - 4 - rowOffset} textAnchor="middle" fontSize={10}
+                      fill={stroke}>{line2}</text>
+                  )}
+                </>
+              )
+            })()}
+            {/* Drag hit-zone: invisible rect over the icon + a bit of padding.
+                Horizontal drag → z, vertical drag → f. The first ~4 px of
+                movement decides which axis the drag is locked to. */}
+            {draggable && isLens && (
+              <rect x={cx - LENS_W / 2 - 3} y={iconTop - 2}
+                width={LENS_W + 6} height={LENS_H + 4}
+                fill="transparent" style={{ cursor: 'move' }}
+                onMouseDown={beginDrag}>
+                <title>Drag ← → to change z · drag ↑ ↓ to change f</title>
+              </rect>
+            )}
           </g>
         )
       })}
@@ -481,16 +755,31 @@ function BeamPlot({ traces, events, testPoints, zTotal, height = 220, title }) {
           fill="none" stroke={t.color} strokeWidth={1.8}
           strokeLinejoin="round" strokeLinecap="round" />
       ))}
+      {/* Resize handle in the bottom-right corner. Drag to zoom the plot. */}
+      {onResize && (
+        <g style={{ cursor: 'nwse-resize' }}
+           onMouseDown={e => {
+             e.stopPropagation(); e.preventDefault()
+             resizeRef.current = {
+               startClientX: e.clientX, startClientY: e.clientY,
+               startW: W, startH: H,
+             }
+           }}>
+          <rect x={W - 14} y={H - 14} width={14} height={14} fill="transparent" />
+          <path d={`M${W - 3},${H - 12} L${W - 12},${H - 3} M${W - 3},${H - 6} L${W - 6},${H - 3}`}
+            stroke="var(--text-muted)" strokeWidth={1} fill="none" opacity={0.7} />
+        </g>
+      )}
     </svg>
   )
 }
 
 // ── Main mode component ────────────────────────────────────────────────────
-export default function BeamPropagationMode({
+const BeamPropagationMode = forwardRef(function BeamPropagationMode({
   propagations: propagationsRaw, activePropagation,
   onSetPropagations, onSetActivePropagation, onExit,
   beamPaths, elements, symbolDefs,
-}) {
+}, ref) {
   const [importOpen, setImportOpen] = useState(false)
   const [renamingId, setRenamingId] = useState(null)
   const [renameVal, setRenameVal]   = useState('')
@@ -509,38 +798,104 @@ export default function BeamPropagationMode({
   const activeId = activePropagation && propagations[activePropagation] ? activePropagation : (ids[0] ?? null)
   const p = activeId ? propagations[activeId] : null
 
+  // ── Local undo stack ─────────────────────────────────────────────────────
+  // Snapshots the whole propagations map on every user-driven change. A short
+  // debounce coalesces rapid keystrokes (e.g. typing a name, dragging a lens)
+  // into a single history entry so Cmd/Ctrl+Z jumps meaningful distances.
+  // Version state is bumped on each snapshot / undo so the toolbar can show
+  // an accurate "disabled" state for the button.
+  const historyRef = useRef([])
+  const lastSnapAtRef = useRef(0)
+  const [, setHistoryVersion] = useState(0)
+  const MAX_HISTORY = 100
+  const COALESCE_MS = 500
+  function snapshotIfDue() {
+    const now = Date.now()
+    if (historyRef.current.length === 0 || now - lastSnapAtRef.current > COALESCE_MS) {
+      historyRef.current = [
+        ...historyRef.current.slice(-MAX_HISTORY + 1),
+        propagationsRaw,
+      ]
+      lastSnapAtRef.current = now
+      setHistoryVersion(v => v + 1)
+    }
+  }
+  function snapshotNow() {
+    historyRef.current = [
+      ...historyRef.current.slice(-MAX_HISTORY + 1),
+      propagationsRaw,
+    ]
+    lastSnapAtRef.current = Date.now()
+    setHistoryVersion(v => v + 1)
+  }
+  function commitProps(next) { snapshotIfDue(); onSetPropagations(next) }
+  function commitPropsDiscrete(next) { snapshotNow(); onSetPropagations(next) }
+  function undo() {
+    const h = historyRef.current
+    if (!h.length) return
+    onSetPropagations(h[h.length - 1])
+    historyRef.current = h.slice(0, -1)
+    // Force the next mutation to start a fresh coalesce window.
+    lastSnapAtRef.current = 0
+    setHistoryVersion(v => v + 1)
+  }
+  // Cmd / Ctrl + Z while the mode is mounted.
+  useEffect(() => {
+    function onKey(e) {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) {
+        const tag = document.activeElement?.tagName
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
+        e.preventDefault()
+        undo()
+      }
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [propagationsRaw])
+
   function setActive(id) { onSetActivePropagation(id) }
   function mutate(patch) {
     if (!p) return
-    onSetPropagations({ ...propagations, [p.id]: { ...p, ...patch } })
+    commitProps({ ...propagations, [p.id]: { ...p, ...patch } })
   }
   function mutateOptic(idx, patch) {
     if (!p) return
     const optics = p.optics.map((o, i) => i === idx ? { ...o, ...patch } : o)
     mutate({ optics })
   }
+  function mutateOpticById(id, patch) {
+    if (!p) return
+    const optics = p.optics.map(o => o.id === id ? { ...o, ...patch } : o)
+    mutate({ optics })
+  }
+  // Discrete operations use commitPropsDiscrete so each add/remove is its
+  // own undo step even when they happen in rapid succession.
+  function mutateDiscrete(patch) {
+    if (!p) return
+    commitPropsDiscrete({ ...propagations, [p.id]: { ...p, ...patch } })
+  }
   function addOptic() {
     const optic = { id: crypto.randomUUID(), kind: 'lens', z_mm: 0, f_mm: 100, shape: 'spherical', label: 'L' + ((p?.optics?.length ?? 0) + 1) }
-    mutate({ optics: [...(p?.optics ?? []), optic] })
+    mutateDiscrete({ optics: [...(p?.optics ?? []), optic] })
   }
   function removeOptic(idx) {
-    mutate({ optics: p.optics.filter((_, i) => i !== idx) })
+    mutateDiscrete({ optics: p.optics.filter((_, i) => i !== idx) })
   }
   function addTestPoint() {
     const tp = { id: crypto.randomUUID(), z_mm: 0, label: 't' + ((p?.testPoints?.length ?? 0) + 1) }
-    mutate({ testPoints: [...(p?.testPoints ?? []), tp] })
+    mutateDiscrete({ testPoints: [...(p?.testPoints ?? []), tp] })
   }
   function removeTestPoint(idx) {
-    mutate({ testPoints: p.testPoints.filter((_, i) => i !== idx) })
+    mutateDiscrete({ testPoints: p.testPoints.filter((_, i) => i !== idx) })
   }
   function newPropagation() {
     const np = makeDefaultPropagation(`Propagation ${ids.length + 1}`)
-    onSetPropagations({ ...propagations, [np.id]: np })
+    commitPropsDiscrete({ ...propagations, [np.id]: np })
     setActive(np.id)
   }
   function deletePropagation(id) {
     const { [id]: _drop, ...rest } = propagations
-    onSetPropagations(rest)
+    commitPropsDiscrete(rest)
     if (activeId === id) setActive(Object.keys(rest)[0] ?? null)
   }
 
@@ -558,12 +913,12 @@ export default function BeamPropagationMode({
       const el = elById[nodes[i]]
       const type = (el?.type ?? '').toLowerCase()
       const isLens = type.includes('lens')
-      const fFromEl = Number(el?.f_mm)
+      const fInferred = isLens ? inferFocalLengthMm(el) : NaN
       optics.push({
         id: crypto.randomUUID(),
         kind: isLens ? 'lens' : 'passthrough',
         z_mm: z,
-        f_mm: Number.isFinite(fFromEl) ? fFromEl : 0,
+        f_mm: Number.isFinite(fInferred) ? fInferred : 0,
         shape: 'spherical',
         label: nodes[i],
         elementLabel: nodes[i],
@@ -574,9 +929,79 @@ export default function BeamPropagationMode({
     np.optics = optics
     np.distance_mm = Math.max(500, z + 50)
     np.source = { pathName, nodes, distances_mm }
-    onSetPropagations({ ...propagations, [np.id]: np })
+    commitPropsDiscrete({ ...propagations, [np.id]: np })
     setActive(np.id)
     setImportOpen(false)
+  }
+
+  // ── Reimport: refresh distances + focal lengths from the current designer ─
+  // Preserves the source path + node sequence, plus any user-added optics
+  // that aren't tied to a designer element. If the source path is missing
+  // or a node label no longer exists, fall through to the ordinary import
+  // modal so the user can re-select a start / end.
+  function reimport() {
+    if (!p || !p.source) return
+    const { pathName, nodes } = p.source
+    const path = beamPaths?.[pathName]
+    const elById = {}; elements.forEach(e => { elById[e.label] = e })
+    const stillValid = !!path && nodes.every(l => elById[l])
+    if (!stillValid) {
+      setImportOpen(true)   // let the user pick fresh start/end
+      return
+    }
+    // Recompute cumulative distances from current element positions.
+    const distances_mm = []
+    for (let i = 1; i < nodes.length; i++) {
+      const a = elById[nodes[i - 1]], b = elById[nodes[i]]
+      const dIn = Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2)
+      distances_mm.push(dIn * INCH_MM)
+    }
+    // Rebuild the imported optics (matched by elementLabel), preserving id,
+    // label, and any user-toggled kind. Fresh f and elementType.
+    const importedLabels = new Set(nodes)
+    const opticByLabel = new Map()
+    for (const o of (p.optics ?? [])) {
+      if (o.elementLabel && importedLabels.has(o.elementLabel)) {
+        opticByLabel.set(o.elementLabel, o)
+      }
+    }
+    const nextImported = []
+    let z = 0
+    for (let i = 0; i < nodes.length; i++) {
+      if (i > 0) z += distances_mm[i - 1]
+      const el = elById[nodes[i]]
+      const type = (el?.type ?? '').toLowerCase()
+      const looksLikeLens = type.includes('lens')
+      const fInferred = looksLikeLens ? inferFocalLengthMm(el) : NaN
+      const prev = opticByLabel.get(nodes[i])
+      nextImported.push({
+        id: prev?.id ?? crypto.randomUUID(),
+        // Preserve manual kind switches (e.g. user marked something as a lens),
+        // but default to lens/passthrough by type when there was no prior optic.
+        kind: prev?.kind ?? (looksLikeLens ? 'lens' : 'passthrough'),
+        z_mm: z,
+        f_mm: Number.isFinite(fInferred) ? fInferred
+              : (prev?.kind === 'lens' ? (prev.f_mm ?? 0) : 0),
+        shape: prev?.shape ?? 'spherical',
+        label: prev?.label ?? nodes[i],
+        elementLabel: nodes[i],
+        elementType: el?.type ?? '',
+      })
+    }
+    // Keep any user-added optics (no elementLabel or one outside the source
+    // node set) at their current z, appended after the refreshed sequence.
+    const kept = (p.optics ?? []).filter(o =>
+      !o.elementLabel || !importedLabels.has(o.elementLabel))
+    const nextOptics = [...nextImported, ...kept]
+    commitPropsDiscrete({
+      ...propagations,
+      [p.id]: {
+        ...p,
+        optics: nextOptics,
+        distance_mm: Math.max(p.distance_mm ?? 0, z + 50),
+        source: { pathName, nodes, distances_mm },
+      },
+    })
   }
 
   // ── Build the propagation trace ──────────────────────────────────────────
@@ -612,15 +1037,19 @@ export default function BeamPropagationMode({
     const trace = sampleWofZ2D(steps, qx0, qy0, lambda_mm)
 
     // Build unified event list for the plot: every optic — lens or
-    // passthrough — gets a marker at its z.
-    const events = optics.map(o => ({
-      z_mm: o.z_mm,
-      kind: o.kind,       // 'lens' | 'passthrough'
-      label: o.label,
-      elementLabel: o.elementLabel,
-      f: o.f_mm,
-      shape: o.shape ?? 'spherical',
-    }))
+    // passthrough — gets a marker at its z. Passthroughs are filtered out
+    // when the propagation's Hide pass-through on plot flag is on.
+    const events = optics
+      .filter(o => !p.hidePassthroughOnPlot || o.kind === 'lens')
+      .map(o => ({
+        z_mm: o.z_mm,
+        kind: o.kind,       // 'lens' | 'passthrough'
+        label: o.label,
+        elementLabel: o.elementLabel,
+        f: o.f_mm,
+        shape: o.shape ?? 'spherical',
+        opticId: o.id,      // for drag-updates by id (indices shift with sort)
+      }))
 
     // Per-optic + per-test-point q sampling (independent replay for accuracy).
     function beamAt(z_mm) {
@@ -659,6 +1088,176 @@ export default function BeamPropagationMode({
     URL.revokeObjectURL(url)
   }
 
+  // ── PDF export ────────────────────────────────────────────────────────────
+  // Renders the active propagation's plot(s) plus the parameter table into a
+  // landscape-letter PDF via jspdf + svg2pdf. Loaded on demand.
+  const plotWrapRef = useRef(null)
+  async function exportPropagationPdf() {
+    if (!p || !compute) return
+    const [{ default: jsPDF }, { svg2pdf }] = await Promise.all([
+      import('jspdf'), import('svg2pdf.js'),
+    ])
+    const doc = new jsPDF({ orientation: 'l', unit: 'mm', format: 'letter' })
+    const pageW = doc.internal.pageSize.getWidth()
+    const pageH = doc.internal.pageSize.getHeight()
+
+    // Title + summary — plain ASCII only. jsPDF's built-in Helvetica has
+    // no Greek letters (lambda), no subscripts (w0 as w₀), and no middle
+    // dot; using them here previously rendered as tofu / dropped glyphs.
+    doc.setFontSize(14); doc.setFont('helvetica', 'bold')
+    doc.text(p.name || 'Beam propagation', 12, 14)
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(10)
+    const metaParts = [
+      `wavelength = ${p.wavelength_nm} nm`,
+      `distance = ${p.distance_mm} mm`,
+      p.splitXY
+        ? `w0 (x,y) = ${p.w0x_mm}, ${p.w0y_mm} mm     div (x,y) = ${p.divx_mrad}, ${p.divy_mrad} mrad`
+        : `w0 = ${p.w0x_mm} mm     div = ${p.divx_mrad} mrad`,
+    ]
+    doc.text(metaParts.join('     '), 12, 20)
+    if (p.source) {
+      doc.setTextColor(120)
+      doc.text(`Imported from: ${p.source.pathName}`, 12, 26)
+      doc.setTextColor(0)
+    }
+
+    // Plots
+    const svgs = plotWrapRef.current?.querySelectorAll('svg.prop-plot') ?? []
+    let y = 30
+    const plotDrawWmm = pageW - 24
+    const plotDrawHmm = 76
+    for (const svg of svgs) {
+      if (y + plotDrawHmm > pageH - 12) { doc.addPage(); y = 12 }
+      // Clone so we can strip <image> tags svg2pdf may struggle with. The
+      // lens icons are only decorative here; keep them as tiny outlined
+      // rectangles for a fully vector output.
+      const clone = svg.cloneNode(true)
+      // Give svg2pdf a font it actually knows. Its built-in font table
+      // resolves 'sans-serif' → 'helvetica'; without this, text ends up in
+      // the default 'times' font at the wrong metrics, so labels don't sit
+      // where we placed them.
+      const styleEl = document.createElementNS('http://www.w3.org/2000/svg', 'style')
+      styleEl.textContent = 'text { font-family: sans-serif }'
+      clone.insertBefore(styleEl, clone.firstChild)
+      // svg2pdf doesn't resolve CSS variables (var(--text-muted) etc.), so
+      // any element whose stroke/fill was a var() renders invisible. Copy
+      // the LIVE element's computed color onto its clone. Doing this for
+      // every element (not just var() ones) also flattens any theme-driven
+      // colors that get injected via the stylesheet cascade.
+      // svg2pdf's color parser only handles hex + a handful of named
+      // colors — rgb(...) tends to fall back to black. Explicit hex fills
+      // (trace colors, lens gold, test-point green) should pass through
+      // untouched; only var(--...) references (which svg2pdf can't resolve
+      // at all) need to be replaced with the browser's resolved computed
+      // color, converted to hex.
+      function rgbToHex(s) {
+        if (!s) return s
+        if (s.startsWith('#')) return s
+        const m = /rgba?\(\s*(\d+)[,\s]+(\d+)[,\s]+(\d+)(?:[,\s/]+([\d.]+))?/i.exec(s)
+        if (!m) return s
+        const to2 = n => Math.max(0, Math.min(255, parseInt(n, 10))).toString(16).padStart(2, '0')
+        const base = `#${to2(m[1])}${to2(m[2])}${to2(m[3])}`
+        if (m[4] == null) return base
+        const a = Math.max(0, Math.min(1, parseFloat(m[4])))
+        if (a >= 0.999) return base
+        return base + Math.round(a * 255).toString(16).padStart(2, '0')
+      }
+      const srcAll = svg.querySelectorAll('*')
+      const dstAll = clone.querySelectorAll('*')
+      for (let idx = 0; idx < srcAll.length && idx < dstAll.length; idx++) {
+        const src = srcAll[idx], dst = dstAll[idx]
+        for (const attr of ['stroke', 'fill']) {
+          const orig = dst.getAttribute(attr)
+          if (orig && orig.includes('var(')) {
+            const resolved = getComputedStyle(src)[attr]
+            if (resolved && resolved !== 'none') dst.setAttribute(attr, rgbToHex(resolved))
+          }
+        }
+        // React sets fontSize via inline style; svg2pdf reads the font-size
+        // attribute. Copy it over if only the style form is present.
+        if (dst.tagName === 'text' && !dst.hasAttribute('font-size')) {
+          const fs = getComputedStyle(src).fontSize
+          if (fs) dst.setAttribute('font-size', parseFloat(fs))
+        }
+      }
+      // svg2pdf uses the SVG's viewBox to map its coordinate space to the
+      // target rect. The live plot has raw width/height but no viewBox, so
+      // set one from the current width/height (or fall back to 720x240) —
+      // otherwise it gets drawn at raw px which massively overshoots the
+      // target width in mm.
+      const rawW = parseFloat(svg.getAttribute('width'))  || 720
+      const rawH = parseFloat(svg.getAttribute('height')) || 240
+      if (!clone.getAttribute('viewBox')) {
+        clone.setAttribute('viewBox', `0 0 ${rawW} ${rawH}`)
+      }
+      // Scale the target height to preserve the plot's aspect ratio.
+      const drawHmm = Math.min(plotDrawHmm, plotDrawWmm * (rawH / rawW))
+      clone.setAttribute('width',  String(plotDrawWmm))
+      clone.setAttribute('height', String(drawHmm))
+      // Inline every <image href="/symbols/*.svg"> so its content ends up
+      // in the PDF as vector geometry instead of being referenced externally
+      // (svg2pdf can't follow the href to an off-page file).
+      await inlineSymbolImages(clone)
+      // svg2pdf requires the SVG to be in the DOM.
+      clone.style.cssText = 'position:absolute;left:-99999px;top:0'
+      document.body.appendChild(clone)
+      if (y + drawHmm > pageH - 12) {
+        // If the aspect correction pushed the plot off the page, start fresh.
+        document.body.removeChild(clone)
+        doc.addPage(); y = 12
+        document.body.appendChild(clone)
+      }
+      try {
+        await svg2pdf(clone, doc, { x: 12, y, width: plotDrawWmm, height: drawHmm })
+      } finally { document.body.removeChild(clone) }
+      y += drawHmm + 4
+    }
+
+    // Parameter table
+    if (y + 20 > pageH - 12) { doc.addPage(); y = 12 }
+    doc.setFontSize(11); doc.setFont('helvetica', 'bold')
+    doc.text('Beam parameters', 12, y); y += 5
+    doc.setFontSize(9)
+    const cols = p.splitXY
+      ? ['Role', 'Label', 'z (mm)', 'f (mm)', 'w_x (mm)', 'w_y (mm)', 'Element']
+      : ['Role', 'Label', 'z (mm)', 'f (mm)', 'w (mm)', 'Element']
+    const colX = p.splitXY
+      ? [12, 60, 100, 130, 158, 190, 220]
+      : [12, 60, 100, 130, 160, 200]
+    cols.forEach((c, i) => doc.text(c, colX[i], y))
+    y += 2
+    doc.setDrawColor(180); doc.line(12, y, pageW - 12, y)
+    y += 4
+    doc.setFont('helvetica', 'normal')
+    const rowsForPdf = compute.rows.filter(r => !p.hidePassthroughInTable || r.kind !== 'element')
+    for (const r of rowsForPdf) {
+      const kindLabel = r.elementType?.trim()
+        ? r.elementType.trim()
+        : (r.kind === 'test' ? 'test point'
+           : r.kind === 'lens' ? 'lens' : 'pass-through')
+      const wx = Number.isFinite(r.wx_mm) ? r.wx_mm.toFixed(4) : '—'
+      const wy = Number.isFinite(r.wy_mm) ? r.wy_mm.toFixed(4) : '—'
+      const f  = r.kind === 'lens' && Number.isFinite(r.f_mm) && r.f_mm !== 0
+                 ? r.f_mm.toFixed(1) : ''
+      const vals = p.splitXY
+        ? [kindLabel, r.label, r.z_mm.toFixed(1), f, wx, wy, r.elementLabel ?? '']
+        : [kindLabel, r.label, r.z_mm.toFixed(1), f, wx, r.elementLabel ?? '']
+      vals.forEach((v, i) => doc.text(String(v), colX[i], y))
+      y += 4.6
+      if (y > pageH - 12) { doc.addPage(); y = 12 }
+    }
+
+    const safe = (p.name || 'propagation').replace(/[/\\?%*:|"<>]/g, '_').trim() || 'propagation'
+    doc.save(`${safe}.pdf`)
+  }
+
+  // Expose the exporter so the top-bar Export PDF button (rendered by App)
+  // can call it. Re-registered on every render so it always sees fresh state.
+  useImperativeHandle(ref, () => ({
+    exportPdf: exportPropagationPdf,
+    canExport: !!p && !!compute,
+  }))
+
   return (
     <div className="prop-mode">
       {/* ── Left rail: propagations list ── */}
@@ -681,7 +1280,7 @@ export default function BeamPropagationMode({
                 {renamingId === id ? (
                   <input className="snap-input" style={{ flex: 1 }} value={renameVal}
                     autoFocus onChange={e => setRenameVal(e.target.value)}
-                    onBlur={() => { onSetPropagations({ ...propagations, [id]: { ...propagations[id], name: renameVal.trim() || propagations[id].name } }); setRenamingId(null) }}
+                    onBlur={() => { commitPropsDiscrete({ ...propagations, [id]: { ...propagations[id], name: renameVal.trim() || propagations[id].name } }); setRenamingId(null) }}
                     onKeyDown={e => { if (e.key === 'Enter') e.target.blur(); if (e.key === 'Escape') setRenamingId(null) }} />
                 ) : (
                   <button className="prop-rail-name"
@@ -722,13 +1321,29 @@ export default function BeamPropagationMode({
                 <label className="prop-field"><input type="checkbox" checked={p.combinedXY}
                   onChange={e => mutate({ combinedXY: e.target.checked })} /> Overlay on one plot</label>
               )}
+              <label className="prop-field"><input type="checkbox" checked={p.hidePassthroughOnPlot ?? false}
+                onChange={e => mutate({ hidePassthroughOnPlot: e.target.checked })} /> Hide pass-through on plot</label>
+              <label className="prop-field"><input type="checkbox" checked={p.hidePassthroughInTable ?? false}
+                onChange={e => mutate({ hidePassthroughInTable: e.target.checked })} /> Hide pass-through in table</label>
               <label className="prop-field">λ (nm)
                 <NumberField style={{ width: 80 }} value={p.wavelength_nm} fallback={1064}
                   onCommit={v => mutate({ wavelength_nm: v })} /></label>
               <label className="prop-field">Distance (mm)
                 <NumberField style={{ width: 90 }} value={p.distance_mm} fallback={500}
                   onCommit={v => mutate({ distance_mm: v })} /></label>
-              {p.source && (<span className="prop-source">Imported from {p.source.pathName}</span>)}
+              {p.source && (
+                <>
+                  <span className="prop-source">Imported from {p.source.pathName}</span>
+                  <button className="small-btn" onClick={reimport}
+                    title="Refresh distances and focal lengths from the current designer state">
+                    ↻ Reimport
+                  </button>
+                </>
+              )}
+              <span style={{ flex: 1 }} />
+              <button className="small-btn" onClick={undo}
+                disabled={historyRef.current.length === 0}
+                title="Undo last change (Cmd/Ctrl+Z)">↶ Undo</button>
             </div>
 
             {/* Initial beam */}
@@ -791,19 +1406,35 @@ export default function BeamPropagationMode({
                 <table className="prop-table">
                   <thead>
                     <tr>
-                      <th>Kind</th><th>Label</th><th>z (mm)</th><th>f (mm)</th>
-                      <th>Shape</th><th>Element</th><th></th>
+                      <th>Role</th><th>Label</th><th>z (mm)</th><th>f (mm)</th>
+                      <th>Element</th><th></th>
                     </tr>
                   </thead>
                   <tbody>
                     {visibleOptics.map(([o, i]) => {
                       const isLens = o.kind === 'lens'
+                      // Combined "Role" value: lens-spherical / lens-cylX /
+                      // lens-cylY / passthrough. Reads current kind+shape
+                      // and writes both on change.
+                      const role = !isLens ? 'passthrough'
+                        : (o.shape === 'cylX' ? 'lens-cylX'
+                          : o.shape === 'cylY' ? 'lens-cylY'
+                          : 'lens-spherical')
+                      function setRole(next) {
+                        if (next === 'passthrough') mutateOptic(i, { kind: 'passthrough' })
+                        else if (next === 'lens-cylX') mutateOptic(i, { kind: 'lens', shape: 'cylX' })
+                        else if (next === 'lens-cylY') mutateOptic(i, { kind: 'lens', shape: 'cylY' })
+                        else mutateOptic(i, { kind: 'lens', shape: 'spherical' })
+                      }
                       return (
                         <tr key={o.id} className={isLens ? '' : 'passthrough'}>
                           <td>
-                            <select className="snap-input" value={o.kind}
-                              onChange={e => mutateOptic(i, { kind: e.target.value })}>
-                              <option value="lens">Lens</option>
+                            <select className="snap-input" style={{ minWidth: 130 }}
+                              value={role}
+                              onChange={e => setRole(e.target.value)}>
+                              <option value="lens-spherical">Lens</option>
+                              <option value="lens-cylX" disabled={!p.splitXY}>Lens (Cyl. X)</option>
+                              <option value="lens-cylY" disabled={!p.splitXY}>Lens (Cyl. Y)</option>
                               <option value="passthrough">Pass-through</option>
                             </select>
                           </td>
@@ -815,14 +1446,6 @@ export default function BeamPropagationMode({
                             <NumberField style={{ width: 80 }} value={o.f_mm} fallback={0}
                               onCommit={v => mutateOptic(i, { f_mm: v })} />
                           ) : <span className="dim">—</span>}</td>
-                          <td>{isLens ? (
-                            <select className="snap-input" value={o.shape ?? 'spherical'}
-                              onChange={e => mutateOptic(i, { shape: e.target.value })}>
-                              <option value="spherical">Spherical</option>
-                              <option value="cylX" disabled={!p.splitXY}>Cyl. x</option>
-                              <option value="cylY" disabled={!p.splitXY}>Cyl. y</option>
-                            </select>
-                          ) : <span className="dim">—</span>}</td>
                           <td className="el-meta">
                             {o.elementLabel ?? ''}{o.elementType ? ` · ${o.elementType}` : ''}
                           </td>
@@ -831,7 +1454,7 @@ export default function BeamPropagationMode({
                       )
                     })}
                     {(!p.optics || !p.optics.length) && (
-                      <tr><td colSpan={7} className="dim" style={{ textAlign: 'center', padding: 8 }}>
+                      <tr><td colSpan={6} className="dim" style={{ textAlign: 'center', padding: 8 }}>
                         No optics — add one above or import from a beam path.
                       </td></tr>
                     )}
@@ -873,17 +1496,23 @@ export default function BeamPropagationMode({
 
             {/* Plot(s) */}
             {compute && (
-              <div className="prop-plot-wrap">
+              <div className="prop-plot-wrap" ref={plotWrapRef}>
                 {p.splitXY && !p.combinedXY ? (
                   <>
                     <BeamPlot title="x axis"
                       traces={[{ points: compute.trace.traceX, color: '#61afef', label: 'x' }]}
                       events={compute.trace.events}
-                      testPoints={p.testPoints ?? []} zTotal={compute.trace.zTotal} />
+                      testPoints={p.testPoints ?? []} zTotal={compute.trace.zTotal}
+                      width={p.plotWidth} height={p.plotHeight}
+                      onResize={(w, h) => mutate({ plotWidth: w, plotHeight: h })}
+                      onDragOptic={(id, patch) => mutateOpticById(id, patch)} />
                     <BeamPlot title="y axis"
                       traces={[{ points: compute.trace.traceY, color: '#e06c75', label: 'y' }]}
                       events={compute.trace.events}
-                      testPoints={p.testPoints ?? []} zTotal={compute.trace.zTotal} />
+                      testPoints={p.testPoints ?? []} zTotal={compute.trace.zTotal}
+                      width={p.plotWidth} height={p.plotHeight}
+                      onResize={(w, h) => mutate({ plotWidth: w, plotHeight: h })}
+                      onDragOptic={(id, patch) => mutateOpticById(id, patch)} />
                   </>
                 ) : p.splitXY ? (
                   <BeamPlot
@@ -892,12 +1521,14 @@ export default function BeamPropagationMode({
                       { points: compute.trace.traceY, color: '#e06c75', label: 'y' },
                     ]}
                     events={compute.trace.events}
-                    testPoints={p.testPoints ?? []} zTotal={compute.trace.zTotal} />
+                    testPoints={p.testPoints ?? []} zTotal={compute.trace.zTotal}
+                    onDragOptic={(id, patch) => mutateOpticById(id, patch)} />
                 ) : (
                   <BeamPlot
                     traces={[{ points: compute.trace.traceX, color: '#61afef', label: 'w' }]}
                     events={compute.trace.events}
-                    testPoints={p.testPoints ?? []} zTotal={compute.trace.zTotal} />
+                    testPoints={p.testPoints ?? []} zTotal={compute.trace.zTotal}
+                    onDragOptic={(id, patch) => mutateOpticById(id, patch)} />
                 )}
               </div>
             )}
@@ -915,28 +1546,36 @@ export default function BeamPropagationMode({
                   <table className="prop-table">
                     <thead>
                       <tr>
-                        <th style={{ paddingLeft: 12 }}>Kind</th><th>Label</th><th>z (mm)</th>
+                        <th style={{ paddingLeft: 12 }}>Role</th><th>Label</th><th>z (mm)</th>
+                        <th>f (mm)</th>
                         <th>w{p.splitXY ? '_x' : ''} (mm)</th>
                         {p.splitXY && <th>w_y (mm)</th>}
                         <th>Element</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {compute.rows.map((r, i) => {
-                        // "Kind" shows the actual element style when the optic
+                      {compute.rows
+                        .filter(r => !p.hidePassthroughInTable || r.kind !== 'element')
+                        .map((r, i) => {
+                        // "Role" shows the actual element style when the optic
                         // was imported from a designer path — so mirrors read
                         // "mirror", photodetectors read "photodetector", etc.
                         // Fallback: "lens" / "pass-through" / "test point" for
-                        // rows without a designer origin.
-                        const kindLabel = r.elementType?.trim()
-                          ? r.elementType.trim()
+                        // rows without a designer origin. Cylindrical lenses
+                        // get a shape suffix.
+                        const shapeSuffix = r.kind === 'lens' && r.shape && r.shape !== 'spherical'
+                          ? ` (${r.shape === 'cylX' ? 'cyl. x' : 'cyl. y'})` : ''
+                        const roleLabel = r.elementType?.trim()
+                          ? r.elementType.trim() + shapeSuffix
                           : (r.kind === 'test' ? 'test point'
-                             : r.kind === 'lens' ? 'lens' : 'pass-through')
+                             : r.kind === 'lens' ? 'lens' + shapeSuffix : 'pass-through')
                         return (
                           <tr key={i} className={r.kind === 'element' ? 'passthrough' : ''}>
-                            <td style={{ paddingLeft: 12 }}>{kindLabel}</td>
+                            <td style={{ paddingLeft: 12 }}>{roleLabel}</td>
                             <td>{r.label}</td>
                             <td>{r.z_mm.toFixed(1)}</td>
+                            <td>{r.kind === 'lens' && Number.isFinite(r.f_mm) && r.f_mm !== 0
+                                  ? r.f_mm.toFixed(1) : (r.kind === 'lens' ? '—' : '')}</td>
                             <td>{Number.isFinite(r.wx_mm) ? r.wx_mm.toFixed(4) : '—'}</td>
                             {p.splitXY && <td>{Number.isFinite(r.wy_mm) ? r.wy_mm.toFixed(4) : '—'}</td>}
                             <td className="el-meta">{r.elementLabel ?? ''}</td>
@@ -963,4 +1602,5 @@ export default function BeamPropagationMode({
       )}
     </div>
   )
-}
+})
+export default BeamPropagationMode

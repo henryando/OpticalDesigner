@@ -108,7 +108,7 @@ function csvEscape(val) {
     ? `"${s.replace(/"/g, '""')}"` : s
 }
 
-const CORE_KEYS = new Set(['label', 'type', 'x', 'y', 'orientation', 'id', '_softDeleted', 'in_design'])
+const CORE_KEYS = new Set(['label', 'type', 'x', 'y', 'orientation', 'id', '_softDeleted', 'in_design', 'labelPos'])
 
 // elements: raw elements array; overrides: current overrides map; config: table config
 export function serializeElementsCsv(elements, overrides, config) {
