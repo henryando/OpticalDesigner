@@ -20,6 +20,22 @@ body { font-family: system-ui, sans-serif; background: var(--bg-app); color: var
 
 .header-controls { display: flex; align-items: center; gap: 6px; }
 
+/* Rotating keyboard-shortcut tip in the top-bar gutter. Muted so it doesn't
+   compete with the title / project badge / buttons; hidden on narrow bars
+   where it would push into the controls. */
+.header-tip {
+  flex: 1;
+  min-width: 0;
+  margin: 0 16px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: center;
+}
+@media (max-width: 900px) { .header-tip { display: none; } }
+
 a.file-btn { text-decoration: none; }
 .file-btn, a.file-btn {
   background: var(--btn-bg);

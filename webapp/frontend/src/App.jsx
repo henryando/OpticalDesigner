@@ -98,6 +98,50 @@ function dedupeElementLabels(elems, seedLabels = []) {
   return { elements: out, renamed }
 }
 
+// Rotating one-line keyboard-shortcut hint for the top bar. Cycles every 10s
+// through a curated set drawn from the README so people notice shortcuts they
+// haven't been using. Kept intentionally quiet visually — a subtle muted line
+// that lives in the empty gutter between the project badge and the buttons.
+const SHORTCUT_HINTS = [
+  'Press N to add an element at the cursor',
+  'Press D to quick-duplicate the last element you added',
+  'Press P to bulk-edit properties across a selection',
+  'Cmd/Ctrl+F opens search; matches highlight and centre on the canvas',
+  'Cmd/Ctrl+S downloads the project as a .zip',
+  'Cmd/Ctrl+Z undoes the last change',
+  'Press B / L for Box or Lasso Select; M for Move; R for Rotate',
+  'Escape backs out one step: pending click, edit mode, then selection',
+  'Delete soft-deletes selected elements; Shift+Delete removes them entirely',
+  'Arrow keys nudge the selection by one grid step',
+  'Shift + arrow keys rotate the selection ±45° from any mode',
+  'Hold Shift while dragging to disable snapping for free placement',
+  'Hold Ctrl/Cmd while dragging to lock motion to a single axis',
+  'Shift + click an element to add or remove it from the selection',
+  'Double-click a beam edge on the canvas to enter its edit mode',
+  'Double-click a path, layer, or group name in the sidebar to rename it',
+  'View ▾ → Highlight orphaned elements shows what isn’t on a beam path',
+  'Transform ▾ rotates or flips the whole project in one undo step',
+]
+function HeaderShortcutTip() {
+  const [idx, setIdx] = useState(() => Math.floor(Math.random() * SHORTCUT_HINTS.length))
+  useEffect(() => {
+    const t = setInterval(() => {
+      setIdx(prev => {
+        if (SHORTCUT_HINTS.length < 2) return prev
+        let next
+        do { next = Math.floor(Math.random() * SHORTCUT_HINTS.length) } while (next === prev)
+        return next
+      })
+    }, 10000)
+    return () => clearInterval(t)
+  }, [])
+  return (
+    <span className="header-tip" title="Rotates every 10 seconds">
+      💡 {SHORTCUT_HINTS[idx]}
+    </span>
+  )
+}
+
 // Guess which CSV a dropped file is from its name — 'elements' | 'paths' | 'objects' | 'propagations' | null
 function inferCsvKindFromName(filename) {
   const name = filename.toLowerCase()
@@ -2053,6 +2097,7 @@ export default function App() {
         <span className="app-title">👁️ Optical Table Designer</span>
         {currentProjectName && <span className="project-name-badge">{currentProjectName}</span>}
         {currentCloudProject && <span className="project-name-badge">☁ {currentCloudProject.name}</span>}
+        <HeaderShortcutTip />
         <div className="header-controls">
           <a className="file-btn" href="https://github.com/henryando/OpticalDesigner" target="_blank" rel="noreferrer">GitHub</a>
           {supabase && appMode === 'design' && (

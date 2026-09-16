@@ -495,16 +495,34 @@ const OpticalCanvas = forwardRef(function OpticalCanvas({
           // NUL separator: labels and path names are free text that may contain
           // spaces, which would let distinct pairs collide on a shared key.
           const key = [src, dest].slice().sort().join('\u0000')
-          if (!groups.has(key)) groups.set(key, [])
-          groups.get(key).push(`${name}\u0000${ei}`)
+          const isForward = src.localeCompare(dest) < 0
+          if (!groups.has(key)) groups.set(key, { forward: [], reverse: [] })
+          groups.get(key)[isForward ? 'forward' : 'reverse'].push(`${name}\u0000${ei}`)
         })
       })
     const spacing = settings.beamSpacing ?? DEFAULT_BEAM_SPACING
     const offsets = new Map()
-    groups.forEach(members => {
-      if (members.length < 2 || !spacing) return
-      const mid = (members.length - 1) / 2
-      members.forEach((id, i) => offsets.set(id, (i - mid) * spacing))
+    groups.forEach(({ forward, reverse }) => {
+      const total = forward.length + reverse.length
+      if (total < 2 || !spacing) return
+      if (forward.length && reverse.length) {
+        // Mixed physical directions on the same pair: forward beams sit on
+        // the +canonical-normal side, reverse beams on −canonical-normal, so
+        // opposing beams don't overlap and each sub-group stays alphabetical.
+        forward.forEach((id, i) => offsets.set(id,  (i + 0.5) * spacing))
+        reverse.forEach((id, i) => offsets.set(id, -(i + 0.5) * spacing))
+      } else if (forward.length) {
+        // All in the canonical direction — centre around 0.
+        const mid = (forward.length - 1) / 2
+        forward.forEach((id, i) => offsets.set(id, (i - mid) * spacing))
+      } else {
+        // All reverse: centre around 0, then negate so the fan renders
+        // relative to the physical flow rather than to the canonical
+        // direction's normal (which would flip sides between edges of a
+        // single path whose consecutive pairs sort in opposite orders).
+        const mid = (reverse.length - 1) / 2
+        reverse.forEach((id, i) => offsets.set(id, -(i - mid) * spacing))
+      }
     })
     return offsets
   }, [beamPaths, visiblePaths, elemByLabel, settings.beamSpacing])
