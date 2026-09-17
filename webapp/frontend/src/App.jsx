@@ -142,6 +142,63 @@ function HeaderShortcutTip() {
   )
 }
 
+// Deep-equal via JSON — good enough for the plain data blobs we merge.
+function jsonEq(a, b) { try { return JSON.stringify(a) === JSON.stringify(b) } catch { return false } }
+
+// Two-way merge of a local project state with a remote (cloud) one. For each
+// keyed collection: adds items that only one side has; on a real conflict
+// (same key, different content) records an error and keeps the local value.
+// Settings / config / symbolDefs are taken from local (the user's current
+// working state) — they're rarely worth conflict-resolving.
+// Returns { state, errors: string[] }. Callers should surface errors and let
+// the user re-choose if the merge wasn't clean.
+function mergeCloudState(local, remote) {
+  const errors = []
+  function mergeDict(name, l, r, formatKey = k => k) {
+    const out = { ...(r ?? {}) }
+    for (const [k, lv] of Object.entries(l ?? {})) {
+      if (!(k in out)) { out[k] = lv; continue }
+      if (!jsonEq(lv, out[k])) {
+        errors.push(`${name} "${formatKey(k)}" was edited on both sides`)
+      }
+      out[k] = lv     // prefer local on conflict; error is surfaced above
+    }
+    return out
+  }
+  // Elements is an array; key by label for the merge, then flatten back.
+  const lEls = {}, rEls = {}
+  ;(local.elements ?? []).forEach(el => { lEls[el.label] = el })
+  ;(remote.elements ?? []).forEach(el => { rEls[el.label] = el })
+  const merged = { ...rEls }
+  for (const [k, lv] of Object.entries(lEls)) {
+    if (!(k in merged)) { merged[k] = lv; continue }
+    if (!jsonEq(lv, merged[k])) errors.push(`Element "${k}" was edited on both sides`)
+    merged[k] = lv
+  }
+  return {
+    state: {
+      elements:      Object.values(merged),
+      overrides:     { ...(remote.overrides ?? {}), ...(local.overrides ?? {}) },
+      beamPaths:     mergeDict('Beam path',         local.beamPaths,     remote.beamPaths),
+      bgGroups:      mergeDict('Background group',  local.bgGroups,      remote.bgGroups),
+      bgImages:      mergeDict('Background image',  local.bgImages,      remote.bgImages),
+      propagations:  mergeDict('Propagation',       local.propagations,  remote.propagations,
+                               k => local.propagations?.[k]?.name || remote.propagations?.[k]?.name || k),
+      visiblePaths:  { ...(remote.visiblePaths ?? {}), ...(local.visiblePaths ?? {}) },
+      visibleBg:     { ...(remote.visibleBg ?? {}),    ...(local.visibleBg ?? {}) },
+      activePropagation: local.activePropagation ?? remote.activePropagation,
+      // Take local for these — merging settings / configuration rarely helps.
+      settings:    local.settings,
+      config:      local.config,
+      symbolDefs:  local.symbolDefs,
+      sidebarWidth: local.sidebarWidth,
+      layers:      local.layers,
+      activeLayer: local.activeLayer,
+    },
+    errors,
+  }
+}
+
 // Guess which CSV a dropped file is from its name — 'elements' | 'paths' | 'objects' | 'propagations' | null
 function inferCsvKindFromName(filename) {
   const name = filename.toLowerCase()
@@ -272,6 +329,11 @@ export default function App() {
   const [cloudBusy,               setCloudBusy]               = useState(false)
   const [cloudError,              setCloudError]              = useState(null)
   const [cloudConflict,           setCloudConflict]           = useState(null) // {updatedByEmail, updatedAt}
+  // Detected while polling — the current cloud project has a newer version.
+  // `errors` gets populated when a merge attempt didn't come out clean.
+  const [cloudUpdatePrompt,       setCloudUpdatePrompt]       = useState(null) // {updatedByEmail, updatedAt, errors}
+  const [cloudSaveAsName,         setCloudSaveAsName]         = useState('')
+  const [cloudSaveAsPromptOpen,   setCloudSaveAsPromptOpen]   = useState(false)
   const [saveToCloudPromptOpen,   setSaveToCloudPromptOpen]   = useState(false)
   const [saveToCloudName,         setSaveToCloudName]         = useState('')
   const [uploadConflict,     setUploadConflict]     = useState(null) // { kind: 'elements'|'paths'|'objects', parsed, parsedCfg }
@@ -1010,6 +1072,81 @@ export default function App() {
     if (!supabase) return
     await supabase.auth.signOut()
     setCurrentCloudProject(null)
+  }
+
+  // ── Periodic cloud freshness check ────────────────────────────────────────
+  // While a cloud project is open, ping the server every 30 s. If its
+  // updatedAt bumped past what we last saved / loaded, offer the user four
+  // ways out via the cloudUpdatePrompt modal below.
+  const CLOUD_POLL_MS = 30_000
+  useEffect(() => {
+    if (!session || !currentCloudProject || cloudUpdatePrompt || cloudConflict) return
+    let stopped = false
+    async function poll() {
+      if (stopped) return
+      try {
+        const latest = await getCloudProjectUpdatedAt(currentCloudProject.id)
+        if (!stopped && latest.updatedAt !== currentCloudProject.updatedAt) {
+          setCloudUpdatePrompt({ ...latest, errors: null })
+        }
+      } catch { /* transient; try again next tick */ }
+    }
+    const t = setInterval(poll, CLOUD_POLL_MS)
+    return () => { stopped = true; clearInterval(t) }
+  }, [session, currentCloudProject?.id, currentCloudProject?.updatedAt, cloudUpdatePrompt, cloudConflict])
+
+  // Resolve helpers used by the cloudUpdatePrompt modal.
+  async function resolveCloudReload() {
+    if (!currentCloudProject) return
+    setCloudUpdatePrompt(null)
+    await openCloudProjectById(currentCloudProject.id)
+  }
+  async function resolveCloudOverwrite() {
+    setCloudUpdatePrompt(null)
+    await updateCurrentCloudProject(true)
+  }
+  function resolveCloudSaveAs() {
+    // Pre-fill with the current name + " (local)" as a nudge to disambiguate.
+    setCloudSaveAsName(`${currentCloudProject?.name ?? 'Project'} (local)`)
+    setCloudSaveAsPromptOpen(true)
+  }
+  async function commitCloudSaveAs() {
+    const name = cloudSaveAsName.trim()
+    if (!name || !session) return
+    try {
+      const saved = await insertCloudProject(name, captureProjectState(), session.user)
+      setCurrentCloudProject(saved)
+      setCloudSaveAsPromptOpen(false)
+      setCloudSaveAsName('')
+      setCloudUpdatePrompt(null)
+    } catch (e) { setCloudError(e.message) }
+  }
+  async function resolveCloudMerge() {
+    if (!session || !currentCloudProject) return
+    try {
+      const remote = await fetchCloudProject(currentCloudProject.id)
+      const { state, errors } = mergeCloudState(captureProjectState(), remote.state)
+      if (errors.length) {
+        // Surface conflicts and let the user pick a different resolution.
+        setCloudUpdatePrompt(prev => prev
+          ? { ...prev, updatedAt: remote.updatedAt, errors }
+          : { updatedAt: remote.updatedAt, errors })
+        return
+      }
+      applyProjectState(state)
+      // Push the merged state directly (React state hasn't caught up yet
+      // from applyProjectState, so reading captureProjectState() would be
+      // stale).
+      const saved = await updateCloudProject(
+        remote.id, remote.name, state, session.user
+      )
+      setCurrentCloudProject(saved)
+      setCloudUpdatePrompt(null)
+    } catch (e) {
+      setCloudUpdatePrompt(prev => prev
+        ? { ...prev, errors: [`Merge failed: ${e.message}`] }
+        : { updatedAt: null, errors: [`Merge failed: ${e.message}`] })
+    }
   }
 
   function renameBeamPath(oldName, newName) {
@@ -2099,7 +2236,7 @@ export default function App() {
         {currentCloudProject && <span className="project-name-badge">☁ {currentCloudProject.name}</span>}
         <HeaderShortcutTip />
         <div className="header-controls">
-          <a className="file-btn" href="https://github.com/henryando/OpticalDesigner" target="_blank" rel="noreferrer">GitHub</a>
+          <a className="file-btn" href="https://github.com/henryando/OpticalDesigner#readme" target="_blank" rel="noreferrer">GitHub Readme</a>
           {supabase && appMode === 'design' && (
             session ? (
               <>
@@ -2282,6 +2419,7 @@ export default function App() {
           onAddEdge={addEdge}
           onDeleteEdge={deleteEdge}
           onSetEditingPath={setEditingPath}
+          onSelectPath={() => setSidebarTab('paths')}
           editingBgGroup={editingBgGroup}
           onAddBgEdge={addBgEdge}
           onDeleteBgEdge={deleteBgEdge}
@@ -2487,6 +2625,76 @@ export default function App() {
                 {cloudBusy ? 'Saving…' : 'Save'}
               </button>
               <button className="small-btn" disabled={cloudBusy} onClick={() => setSaveToCloudPromptOpen(false)}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Cloud update detected by the periodic freshness check ─────────── */}
+      {cloudUpdatePrompt && (
+        <div className="modal-backdrop" onClick={() => setCloudUpdatePrompt(null)}>
+          <div className="modal-box modal-box-wide" onClick={e => e.stopPropagation()}>
+            <div className="modal-title">Cloud project has a newer version</div>
+            <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '4px 0 8px' }}>
+              {cloudUpdatePrompt.updatedByEmail
+                ? `Updated by ${cloudUpdatePrompt.updatedByEmail}`
+                : 'Updated'}{cloudUpdatePrompt.updatedAt
+                ? ` at ${new Date(cloudUpdatePrompt.updatedAt).toLocaleString()}`
+                : ''} since you loaded it. How would you like to handle it?
+            </p>
+            {cloudUpdatePrompt.errors?.length ? (
+              <div style={{ margin: '4px 0 10px', padding: 8, borderRadius: 4,
+                            background: 'rgba(255, 100, 100, 0.12)',
+                            border: '1px solid rgba(255, 100, 100, 0.35)' }}>
+                <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
+                  Merge couldn't complete cleanly:
+                </div>
+                <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12 }}>
+                  {cloudUpdatePrompt.errors.map((e, i) => <li key={i}>{e}</li>)}
+                </ul>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 6 }}>
+                  Pick another option below.
+                </div>
+              </div>
+            ) : null}
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              <button className="small-btn" onClick={resolveCloudReload}
+                title="Discard local edits and load the newer cloud version">
+                Reload cloud version
+              </button>
+              <button className="small-btn" onClick={resolveCloudOverwrite}
+                title="Push the local version to the cloud, replacing the new one">
+                Overwrite with local
+              </button>
+              <button className="small-btn" onClick={resolveCloudSaveAs}
+                title="Keep the newer cloud version and save the local one under a different name">
+                Save local as new…
+              </button>
+              <button className="small-btn" onClick={resolveCloudMerge}
+                title="Attempt to combine both versions (git-merge–style)">
+                Merge
+              </button>
+              <button className="small-btn" onClick={() => setCloudUpdatePrompt(null)}>
+                Dismiss
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {cloudSaveAsPromptOpen && (
+        <div className="modal-backdrop" onClick={() => setCloudSaveAsPromptOpen(false)}>
+          <div className="modal-box" onClick={e => e.stopPropagation()}>
+            <div className="modal-title">Save local version as new cloud project</div>
+            <input className="snap-input" style={{ width: '100%', marginTop: 4 }}
+              value={cloudSaveAsName} onChange={e => setCloudSaveAsName(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') commitCloudSaveAs() }}
+              placeholder="Project name"
+              autoFocus />
+            <div style={{ marginTop: 10, display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+              <button className="small-btn" onClick={() => setCloudSaveAsPromptOpen(false)}>Cancel</button>
+              <button className="small-btn" onClick={commitCloudSaveAs}
+                disabled={!cloudSaveAsName.trim()}>Save</button>
             </div>
           </div>
         </div>

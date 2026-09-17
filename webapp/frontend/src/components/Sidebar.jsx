@@ -162,8 +162,8 @@ export default function Sidebar({
   return (
     <aside className="sidebar" style={{ fontSize: `${settings.uiFontSize ?? 12}px`, width: sidebarWidth ?? 280 }}>
       <div className="sidebar-tabs">
-        <button className={`sidebar-tab ${tab === 'paths'    ? 'active' : ''}`} onClick={() => setTab('paths')}>Paths</button>
         <button className={`sidebar-tab ${tab === 'elements' ? 'active' : ''}`} onClick={() => setTab('elements')}>Elements</button>
+        <button className={`sidebar-tab ${tab === 'paths'    ? 'active' : ''}`} onClick={() => setTab('paths')}>Paths</button>
         <button className={`sidebar-tab ${tab === 'objects'  ? 'active' : ''}`} onClick={() => setTab('objects')}>Objects</button>
         <button className={`sidebar-tab ${tab === 'settings' ? 'active' : ''}`} onClick={() => setTab('settings')}>Settings</button>
       </div>

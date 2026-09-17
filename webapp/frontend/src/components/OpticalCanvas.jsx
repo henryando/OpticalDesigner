@@ -18,7 +18,7 @@ const OpticalCanvas = forwardRef(function OpticalCanvas({
   config,
   selectedLabels, selectedElement,
   onSelectLabel, onStartEdit, onUpdateEdit, onDeleteSelected, onHardDeleteSelected,
-  editingPath, onAddEdge, onDeleteEdge, onSetEditingPath,
+  editingPath, onAddEdge, onDeleteEdge, onSetEditingPath, onSelectPath,
   editingBgGroup, onAddBgEdge, onDeleteBgEdge, onSetEditingBgGroup,
   onAddBgLabel, onDeleteBgLabel,
   pendingBgLabelText, onSetPendingBgLabelText,
@@ -793,6 +793,7 @@ const OpticalCanvas = forwardRef(function OpticalCanvas({
               <line x1={x1} y1={y1} x2={x2} y2={y2}
                 stroke="transparent" strokeWidth={12}
                 style={{ cursor: 'pointer' }}
+                onClick={ev => { ev.stopPropagation(); onSelectPath?.(name) }}
                 onDoubleClick={ev => { ev.stopPropagation(); onSetEditingPath(name) }}
               />
             )}
@@ -976,8 +977,11 @@ const OpticalCanvas = forwardRef(function OpticalCanvas({
                     strokeWidth={Math.max(1, 1.5 / transform.k)} opacity={0.9} />
                 )}
                 {isPendSrc && (
+                  // pointerEvents:none so the pending-source ring doesn't
+                  // swallow clicks on elements the ring happens to cover.
                   <circle r={10} fill="none" stroke={elColor}
-                    strokeWidth={2} strokeDasharray="4 2" opacity={0.9} />
+                    strokeWidth={2} strokeDasharray="4 2" opacity={0.9}
+                    style={{ pointerEvents: 'none' }} />
                 )}
                 {!settings.borderAnnotations && (settings.showONumber || settings.showType || settings.showAnnotation) && (() => {
                   const parts = [
