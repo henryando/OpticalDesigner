@@ -2,6 +2,13 @@
 
 A browser-based tool for visualising and editing optical layouts on a 2D table diagram. Elements, beam paths, and background objects are stored as plain CSV/JSON files that round-trip cleanly with the lab's existing spreadsheets.
 
+<p align="center">
+  <img src="docs/screenshots/hero.png" alt="Optical Table Designer main view" width="820" />
+</p>
+
+<!-- Screenshots and GIFs live in docs/screenshots/. See docs/screenshots/README.md
+     for filename conventions and quick capture tips. -->
+
 ## Features
 
 - **Interactive canvas** — pan (drag), zoom (scroll), snap-to-grid placement
@@ -50,6 +57,8 @@ Cloud projects are **private to the account that created them** — Row Level Se
 
 The canvas toolbar (bottom-left) switches between modes. The current mode determines what a click or drag on the canvas does.
 
+<p align="center"><img src="docs/screenshots/editing-modes.gif" alt="Cycling through editing modes" width="720" /></p>
+
 | Mode | Enter | What it does |
 |---|---|---|
 | **Select** (default) | `Escape`, or the ↖ toolbar button | Click an element to select it; click empty canvas to deselect; drag empty canvas to pan; drag an element to move it |
@@ -62,6 +71,8 @@ Two additional modes are entered from the sidebar rather than the toolbar:
 
 - **Beam-path edit** — click the ✎ next to a path in the **Paths** tab. Click a source element, then a destination element, to add an edge between them; clicking an existing edge deletes it. Click the pending source again to cancel it. Exit with **Done** in the sidebar or `Escape`.
 - **Background-object edit** — click the ✎ next to a group in the **Objects** tab. Click two points to draw a line segment (snaps to grid; `Shift`-click for a free point); click an existing segment to delete it. Text labels: type into the **Text labels** input, then click the canvas to drop that text at the grid position (uses the group's color). Click a placed label in edit mode to delete it. Exit with **Done** in the sidebar or `Escape`.
+
+<p align="center"><img src="docs/screenshots/beam-path-edit.gif" alt="Building a beam path" width="720" /></p>
 
 `Escape` always backs out one step at a time: it clears a pending point/edge first, then exits edit mode, then returns to Select.
 
@@ -128,9 +139,16 @@ Each field is seeded with the value from the first selected element and starts u
 
 ### Sidebar tabs
 
+<p align="center"><img src="docs/screenshots/sidebar-tabs.png" alt="Sidebar tabs" width="360" /></p>
+
 - **Paths** — list beam paths, toggle visibility, add/rename/delete a path, edit its edges.
 - **Elements** — add elements (by form, or press `N` at the cursor); manage layers (radio = active layer, checkbox = visibility); filter and multi-select from the full elements list; toggle In Design per element.
+
+<p align="center"><img src="docs/screenshots/add-element.gif" alt="Adding an element with N" width="720" /></p>
+
 - **Objects** — background-object groups (chamber walls, mounts, etc.), same add/rename/delete/edit-edges pattern as Paths, plus a stroke-width control per group. Below that, a **Background Images** section for placing reference photos or diagram screenshots as a semi-transparent layer under the design: click **+** to upload, drag on the canvas to move, and use the X/Y/W/α/θ inputs to set exact position, width (in inches, height auto-preserves aspect), opacity, and rotation (degrees, clockwise); Flip ↔ / Flip ↕ buttons mirror the image without changing its rotation. Images ride along in project ZIP saves.
+
+<p align="center"><img src="docs/screenshots/background-image.gif" alt="Placing a reference background image" width="720" /></p>
 - **Settings** — dark mode, UI font size, canvas scale, table size/origin, grid display (grid lines, table bounding box, coordinate axis labels, line width), beam-path overlap offset, beam direction arrows, move-snap spacing, element label toggles (O-number, type, annotation), **Send labels to border** (moves every element's label out to the nearest map border with a leader arrow pointing back to the element — drag a label to slide it along the border, and it right-aligns on the left border, left-aligns on the right, centres on the top/bottom; positions are stored per element as `labelPos` and persist with the project), PDF export font size and label Y offset (nudges labels closer to icons at export time if the smaller PDF font makes them feel too far), and the Optics Styles symbol library editor (add/rename/delete symbol mappings, upload custom SVGs, per-style label clearance for icons whose label would otherwise overlap the drawing).
 
 Drag the divider between the canvas and the sidebar to resize the sidebar.
@@ -147,6 +165,8 @@ Drag the divider between the canvas and the sidebar to resize the sidebar.
 
 **Transform ▾** applies global operations to the whole project: rotate 90° left/right (also swaps table length/width so the layout stays inside the same footprint) and flip horizontal/vertical. Each transform is one undo step.
 
+<p align="center"><img src="docs/screenshots/transform-menu.gif" alt="Rotating the whole project" width="720" /></p>
+
 ### Uploading and downloading files
 
 **File ▾** has three sections:
@@ -156,6 +176,18 @@ Drag the divider between the canvas and the sidebar to resize the sidebar.
 - **Projects** — `New Project…` clears the workspace; `Switch Project…` lists and loads named project slots saved in the browser (localStorage); `Rename Project…` renames the current slot in place; `Save Project As…` duplicates the current files into a new, separately-named slot and switches to it, leaving the original slot untouched.
 
 **Export PDF**, a button in the header rather than a menu item, renders the current layout to a vector PDF. The suggested filename defaults to the current project name.
+
+<p align="center"><img src="docs/screenshots/pdf-export.png" alt="A PDF exported from the app" width="720" /></p>
+
+### Beam Propagation
+
+**Beam Propagation** in the header opens a separate mode: a Gaussian-beam sandbox that computes w(z) through a sequence of thin lenses and free-space steps. Every plot lives in its own propagation, listed in the left rail and stored in `propagations.csv` alongside the designer files. From here you can set the wavelength, specify the initial beam either as **local radius + divergence at z = 0** or as **waist size + waist z position** (toggle in the *Initial beam at z = 0* section), or open **Fit from measurements…** to enter a table of profiled beam widths at several z positions — the ISO 11146 hyperbolic model is fit analytically and the resulting w₀, z₀, and M² are applied (paste 2-column `z, w` or 3-column `z, wₓ, w_y` data directly from Excel/CSV). Add lenses (spherical, cyl-x, or cyl-y) at any z, mark test points, and drag lens icons horizontally to move them and vertically to change f. Split x/y renders two axes independently, either stacked or overlaid.
+
+<p align="center"><img src="docs/screenshots/propagation-sandbox.gif" alt="Setting up a beam propagation" width="720" /></p>
+
+**Import from a designer beam path** brings a whole path in with real inter-element distances (× 25.4 mm/in) and pre-fills each lens's focal length from the element's `f_mm` / `Focal Length` column / `Annotation` (`f = 100 mm` and variants understood). Non-lens elements come in as pass-throughs. The **Reimport** button on an imported propagation refreshes distances and focal lengths from the current designer state while keeping the same path and any user-added optics.
+
+<p align="center"><img src="docs/screenshots/propagation-import.gif" alt="Importing a beam path into propagation" width="720" /></p>
 
 #### Merging uploads into an existing project
 

@@ -726,28 +726,28 @@ export default function Sidebar({
                 CSV/JSON round-trip with the existing file format. */}
             <div className="setting-row">
               <span className="setting-label">Width (horiz)</span>
-              <input className="snap-input" type="number" min="1" step="1"
+              <DeferredNumberInput className="snap-input" step="1" min="1" positive
                 value={config.table_length}
-                onChange={e => setConfig('table_length', e.target.value)} />
+                onCommit={v => onConfigChange({ ...config, table_length: v })} />
             </div>
             <div className="setting-row">
               <span className="setting-label">Length (vert)</span>
-              <input className="snap-input" type="number" min="1" step="1"
+              <DeferredNumberInput className="snap-input" step="1" min="1" positive
                 value={config.table_width}
-                onChange={e => setConfig('table_width', e.target.value)} />
+                onCommit={v => onConfigChange({ ...config, table_width: v })} />
             </div>
             <div className="setting-row">
               <span className="setting-label">Origin X</span>
-              <input className="snap-input" type="number" step="0.5"
+              <DeferredNumberInput className="snap-input" step="0.5"
                 value={config.origin_x ?? 0}
-                onChange={e => setConfig('origin_x', e.target.value)} />
+                onCommit={v => onConfigChange({ ...config, origin_x: v })} />
               <span className="setting-unit">in</span>
             </div>
             <div className="setting-row">
               <span className="setting-label">Origin Y</span>
-              <input className="snap-input" type="number" step="0.5"
+              <DeferredNumberInput className="snap-input" step="0.5"
                 value={config.origin_y ?? 0}
-                onChange={e => setConfig('origin_y', e.target.value)} />
+                onCommit={v => onConfigChange({ ...config, origin_y: v })} />
               <span className="setting-unit">in</span>
             </div>
           </section>
@@ -1049,6 +1049,34 @@ function FieldInput({ value, onChange, type = 'text', suffix }) {
       />
       {suffix && <span style={{ color: 'var(--text-muted)', fontSize: 10 }}>{suffix}</span>}
     </span>
+  )
+}
+
+// A number input that lets you delete the value freely while typing —
+// commits only on blur / Enter. Rejected input silently reverts to the
+// last valid value on blur. `positive` refuses non-positive values on
+// commit (used for table dimensions where 0 doesn't make sense).
+function DeferredNumberInput({ value, onCommit, className, style, positive, step, min }) {
+  const [local, setLocal] = useState(String(value))
+  const [focused, setFocused] = useState(false)
+  const shown = focused ? local : String(value)
+  function commit() {
+    setFocused(false)
+    const raw = local.trim()
+    if (raw === '') { setLocal(String(value)); return }
+    const v = parseFloat(raw)
+    if (isNaN(v) || (positive && v <= 0)) { setLocal(String(value)); return }
+    onCommit(v)
+    setLocal(String(v))
+  }
+  return (
+    <input className={className} type="number" step={step} min={min}
+      style={style}
+      value={shown}
+      onChange={e => setLocal(e.target.value)}
+      onFocus={() => { setLocal(String(value)); setFocused(true) }}
+      onBlur={commit}
+      onKeyDown={e => { if (e.key === 'Enter') e.target.blur() }} />
   )
 }
 

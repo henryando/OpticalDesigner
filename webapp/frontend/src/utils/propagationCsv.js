@@ -41,7 +41,8 @@ function parseRow(line) {
 const HEADER = [
   'Name', 'Split XY', 'Wavelength nm', 'Distance mm',
   'w0x mm', 'div_x mrad', 'w0y mm', 'div_y mrad',
-  'Optics JSON', 'Test Points JSON', 'Source JSON',
+  'Init mode', 'wx waist mm', 'zx waist mm', 'wy waist mm', 'zy waist mm',
+  'Optics JSON', 'Test Points JSON', 'Source JSON', 'Waist Measurements JSON',
 ]
 
 export function serializePropagationsCsv(propagations) {
@@ -56,9 +57,15 @@ export function serializePropagationsCsv(propagations) {
       p.divx_mrad ?? 0,
       p.w0y_mm ?? p.w0x_mm ?? 0.25,
       p.divy_mrad ?? p.divx_mrad ?? 0,
+      p.initMode ?? 'beam',
+      p.wxWaist_mm ?? p.w0x_mm ?? 0.25,
+      p.zxWaist_mm ?? 0,
+      p.wyWaist_mm ?? p.w0y_mm ?? p.w0x_mm ?? 0.25,
+      p.zyWaist_mm ?? 0,
       JSON.stringify(p.optics ?? []),
       JSON.stringify(p.testPoints ?? []),
       JSON.stringify(p.source ?? null),
+      JSON.stringify(p.waistMeasurements ?? null),
     ].map(csvEscape).join(',')
     rows.push(row)
   }
@@ -68,30 +75,54 @@ export function serializePropagationsCsv(propagations) {
 export function parsePropagationsCsv(text) {
   const lines = text.split(/\r?\n/).filter(l => l.trim())
   if (!lines.length) return {}
-  const [, ...body] = lines // drop header
+  const [headerLine, ...body] = lines
+  const header = parseRow(headerLine).map(c => csvUnescape(c))
+  const hasInitCols = header.includes('Init mode')
+  const hasMeasCol  = header.includes('Waist Measurements JSON')
   const out = {}
   for (const line of body) {
     const cells = parseRow(line).map(c => csvUnescape(c))
-    const [name, split, lam, dist, w0x, divx, w0y, divy, opticsJSON, tpJSON, srcJSON] = cells
+    let name, split, lam, dist, w0x, divx, w0y, divy
+    let initMode = 'beam', wxWaist = '', zxWaist = '', wyWaist = '', zyWaist = ''
+    let opticsJSON, tpJSON, srcJSON, measJSON
+    if (hasInitCols) {
+      [name, split, lam, dist, w0x, divx, w0y, divy,
+       initMode, wxWaist, zxWaist, wyWaist, zyWaist,
+       opticsJSON, tpJSON, srcJSON, measJSON] = cells
+    } else {
+      [name, split, lam, dist, w0x, divx, w0y, divy,
+       opticsJSON, tpJSON, srcJSON] = cells
+    }
     if (!name) continue
-    let optics = [], testPoints = [], source = null
+    let optics = [], testPoints = [], source = null, waistMeasurements = null
     try { optics = JSON.parse(opticsJSON || '[]') } catch { optics = [] }
     try { testPoints = JSON.parse(tpJSON || '[]') } catch { testPoints = [] }
     try { source = JSON.parse(srcJSON || 'null') } catch { source = null }
+    if (hasMeasCol) {
+      try { waistMeasurements = JSON.parse(measJSON || 'null') } catch { waistMeasurements = null }
+    }
     const id = crypto.randomUUID()
+    const w0xN = parseFloat(w0x) || 0.25
+    const w0yN = parseFloat(w0y) || 0.25
     out[id] = {
       id,
       name,
       splitXY: /^true$/i.test(split),
       wavelength_nm: parseFloat(lam) || 1064,
       distance_mm: parseFloat(dist) || 500,
-      w0x_mm: parseFloat(w0x) || 0.25,
+      w0x_mm: w0xN,
       divx_mrad: parseFloat(divx) || 0,
-      w0y_mm: parseFloat(w0y) || 0.25,
+      w0y_mm: w0yN,
       divy_mrad: parseFloat(divy) || 0,
+      initMode: initMode === 'waist' ? 'waist' : 'beam',
+      wxWaist_mm: parseFloat(wxWaist) || w0xN,
+      zxWaist_mm: parseFloat(zxWaist) || 0,
+      wyWaist_mm: parseFloat(wyWaist) || w0yN,
+      zyWaist_mm: parseFloat(zyWaist) || 0,
       optics,
       testPoints,
       source,
+      waistMeasurements,
     }
   }
   return out

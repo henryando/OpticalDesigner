@@ -1421,9 +1421,12 @@ export default function App() {
       if (Object.keys(bgGroups).length)     zip.file('background_objects.csv', serializeBgObjectsCsv(bgGroups))
       if (Object.keys(propagations).length) zip.file('propagations.csv',       serializePropagationsCsv(propagations))
       const blob = await zip.generateAsync({ type: 'blob' })
-      const zipName = currentProjectName
-        ? currentProjectName.replace(/[^a-z0-9_\-. ]/gi, '_').trim() + '.zip'
-        : 'project.zip'
+      // Use whichever name identifies the currently-open project: a local
+      // slot name, or (for cloud projects that were never renamed locally)
+      // the cloud project's name. Falls back to a generic 'project.zip'.
+      const rawName = currentProjectName || currentCloudProject?.name || ''
+      const cleanName = rawName.replace(/[^a-z0-9_\-. ]/gi, '_').trim()
+      const zipName = cleanName ? `${cleanName}.zip` : 'project.zip'
       await triggerSave(blob, zipName, 'application/zip', 'zip')
     } catch (e) { if (e.name !== 'AbortError') setError('Save project failed: ' + e.message) }
   }

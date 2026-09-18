@@ -5,8 +5,9 @@
 
 import { useMemo, useState, useRef, useEffect, useImperativeHandle, forwardRef } from 'react'
 import {
-  qFromBeam, sampleWofZ2D, radiusFromQ, propagateFreeSpace, propagateThinLens,
-  nmToMm, mradToRad,
+  qFromBeam, qFromWaistPosition, sampleWofZ2D, radiusFromQ,
+  propagateFreeSpace, propagateThinLens,
+  nmToMm, mradToRad, fitBeamWaist, WIDTH_CONVERSIONS,
 } from '../utils/gaussian'
 import { serializePropagationsCsv } from '../utils/propagationCsv'
 import ElementShape from './ElementShape'
@@ -55,6 +56,12 @@ function makeDefaultPropagation(name = 'New propagation') {
     hidePassthroughInTable: false,
     plotWidth: 720,
     plotHeight: 240,
+    // Initial-beam specification: 'beam' → give the local radius + divergence
+    // at z=0 (w0x_mm / divx_mrad, existing); 'waist' → give the waist size
+    // and its z position, and q at z=0 is derived from those.
+    initMode: 'beam',
+    wxWaist_mm:  DEFAULT_W0_MM, zxWaist_mm: 0,
+    wyWaist_mm:  DEFAULT_W0_MM, zyWaist_mm: 0,
     wavelength_nm: DEFAULT_LAMBDA_NM,
     distance_mm: 500,
     w0x_mm: DEFAULT_W0_MM, divx_mrad: 0,
@@ -80,6 +87,12 @@ function normalizePropagation(p) {
   if (out.hidePassthroughInTable == null) out.hidePassthroughInTable = false
   if (out.plotWidth == null)  out.plotWidth = 720
   if (out.plotHeight == null) out.plotHeight = 240
+  if (out.initMode == null)   out.initMode = 'beam'
+  if (out.wxWaist_mm == null) out.wxWaist_mm = out.w0x_mm
+  if (out.zxWaist_mm == null) out.zxWaist_mm = 0
+  if (out.wyWaist_mm == null) out.wyWaist_mm = out.w0y_mm
+  if (out.zyWaist_mm == null) out.zyWaist_mm = 0
+  if (out.waistMeasurements === undefined) out.waistMeasurements = null
   return out
 }
 
@@ -774,6 +787,213 @@ function BeamPlot({ traces, events, testPoints, zTotal, width = 720, height = 24
   )
 }
 
+// ── Waist-from-measurements fit modal ──────────────────────────────────────
+// User enters (z, w_x, w_y) rows, chooses the width convention their
+// profiler uses, and we solve the ISO 11146 hyperbolic-propagation model
+// analytically (see fitBeamWaist). Applying it switches the propagation to
+// 'waist' init mode and writes the fitted w0 / z0 into the corresponding
+// fields. Measurements are persisted on the propagation so reopening the
+// modal restores what was entered.
+function makeBlankMeasurementRow() { return { id: crypto.randomUUID(), z: '', wx: '', wy: '' } }
+function makeDefaultMeasurements() {
+  return {
+    widthDefinition: '1/e2_radius',
+    rows: [
+      makeBlankMeasurementRow(), makeBlankMeasurementRow(),
+      makeBlankMeasurementRow(), makeBlankMeasurementRow(),
+    ],
+  }
+}
+
+function WaistFitModal({ propagation, onClose, onApply }) {
+  const seed = propagation.waistMeasurements ?? makeDefaultMeasurements()
+  const [widthDef, setWidthDef] = useState(seed.widthDefinition ?? '1/e2_radius')
+  const [rows, setRows]         = useState(seed.rows?.length ? seed.rows : makeDefaultMeasurements().rows)
+  const [pasteError, setPasteError] = useState(null)
+
+  const lambda_mm = nmToMm(propagation.wavelength_nm)
+  const wFactor = WIDTH_CONVERSIONS[widthDef] ?? 1
+
+  // Collect columns of numeric values, converting each measurement to a
+  // 1/e² intensity radius. Rows with an unparseable z are dropped from
+  // both axes; a per-axis missing/blank cell drops only that row from
+  // that axis's fit.
+  const columns = (() => {
+    const z = [], wx = [], zx = [], wy = [], zy = []
+    for (const r of rows) {
+      const zn = parseFloat(r.z)
+      if (!Number.isFinite(zn)) continue
+      z.push(zn)
+      const wxn = parseFloat(r.wx)
+      if (Number.isFinite(wxn) && wxn > 0) { zx.push(zn); wx.push(wxn * wFactor) }
+      const wyn = parseFloat(r.wy)
+      if (Number.isFinite(wyn) && wyn > 0) { zy.push(zn); wy.push(wyn * wFactor) }
+    }
+    return { z, wx, zx, wy, zy }
+  })()
+
+  const fitX = columns.wx.length >= 3
+    ? fitBeamWaist({ z_mm: columns.zx, w_mm: columns.wx, lambda_mm })
+    : { ok: false, error: `need ≥3 valid rows (have ${columns.wx.length})` }
+  const fitY = columns.wy.length >= 3
+    ? fitBeamWaist({ z_mm: columns.zy, w_mm: columns.wy, lambda_mm })
+    : columns.wy.length === 0
+        ? null
+        : { ok: false, error: `need ≥3 valid rows (have ${columns.wy.length})` }
+
+  function updateRow(i, patch) {
+    setRows(rs => rs.map((r, j) => j === i ? { ...r, ...patch } : r))
+  }
+  function addRow() { setRows(rs => [...rs, makeBlankMeasurementRow()]) }
+  function removeRow(i) { setRows(rs => rs.filter((_, j) => j !== i)) }
+  function clearAll() {
+    setRows([makeBlankMeasurementRow(), makeBlankMeasurementRow(),
+             makeBlankMeasurementRow(), makeBlankMeasurementRow()])
+    setPasteError(null)
+  }
+  // Whole-table paste: TSV / CSV / whitespace-separated, 2 or 3 columns
+  // (z, wx[, wy]). Replaces all rows on success. Fires when the user
+  // pastes with any table cell focused so it feels natural coming from
+  // Excel / a text editor.
+  function onTablePaste(e) {
+    const text = e.clipboardData?.getData('text') ?? ''
+    if (!/[\n\t,;]/.test(text)) return  // let a single-cell paste behave normally
+    e.preventDefault()
+    const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean)
+    const parsed = []
+    for (const line of lines) {
+      const parts = line.split(/[,;\t\s]+/).filter(Boolean).map(parseFloat)
+      if (!parts.length || !Number.isFinite(parts[0])) continue
+      parsed.push({
+        id: crypto.randomUUID(),
+        z:  String(parts[0]),
+        wx: Number.isFinite(parts[1]) ? String(parts[1]) : '',
+        wy: Number.isFinite(parts[2]) ? String(parts[2]) : '',
+      })
+    }
+    if (!parsed.length) { setPasteError('Could not parse any numeric rows from clipboard'); return }
+    setPasteError(null)
+    setRows(parsed)
+  }
+
+  function apply() {
+    if (!fitX.ok) return
+    const patch = {
+      initMode: 'waist',
+      wxWaist_mm: fitX.w0_mm,
+      zxWaist_mm: fitX.z0_mm,
+      waistMeasurements: { widthDefinition: widthDef, rows },
+    }
+    if (fitY?.ok) {
+      patch.splitXY = true
+      patch.wyWaist_mm = fitY.w0_mm
+      patch.zyWaist_mm = fitY.z0_mm
+    } else {
+      patch.wyWaist_mm = fitX.w0_mm
+      patch.zyWaist_mm = fitX.z0_mm
+    }
+    onApply(patch)
+  }
+
+  function fmt(v, d = 4) {
+    return Number.isFinite(v) ? v.toFixed(d) : '—'
+  }
+  function FitReport({ label, fit }) {
+    if (!fit) return null
+    if (!fit.ok) {
+      return <div className="fit-line fit-err"><b>{label}:</b> {fit.error}</div>
+    }
+    const flag =
+      fit.m2 > 1.3 ? ' — notably multimode' :
+      fit.m2 > 1.1 ? ' — mildly above diffraction limit' : ''
+    return (
+      <div className="fit-line">
+        <b>{label}:</b> w₀ = {fmt(fit.w0_mm)} mm,
+        {' '}z₀ = {fmt(fit.z0_mm, 2)} mm,
+        {' '}M² = {fmt(fit.m2, 3)}{flag},
+        {' '}R² = {fmt(fit.r_squared, 4)}
+      </div>
+    )
+  }
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal-box modal-box-wide" onClick={e => e.stopPropagation()}
+           style={{ maxWidth: 620 }}>
+        <div className="modal-title">Fit initial beam from measurements</div>
+        <p style={{ color: 'var(--text-muted)', margin: '0 0 8px 0', fontSize: 12 }}>
+          Enter beam widths measured at multiple z positions. The ISO 11146
+          hyperbolic model is fit to give the waist size and location.
+          Paste directly from Excel or a CSV — 2 columns (z, w) or 3 columns
+          (z, wₓ, w_y).
+        </p>
+
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
+          <label>Widths measured as
+            <select className="snap-input" style={{ marginLeft: 6 }}
+              value={widthDef} onChange={e => setWidthDef(e.target.value)}>
+              {Object.keys(WIDTH_CONVERSIONS).map(k => (
+                <option key={k} value={k}>{k}</option>
+              ))}
+            </select>
+          </label>
+          <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>
+            (λ = {propagation.wavelength_nm} nm; z, w in mm)
+          </span>
+          <span style={{ flex: 1 }} />
+          <button className="small-btn" onClick={clearAll}>Clear</button>
+        </div>
+
+        <div onPaste={onTablePaste} style={{ maxHeight: 260, overflowY: 'auto',
+             border: '1px solid var(--border)', borderRadius: 4 }}>
+          <table className="prop-table" style={{ margin: 0 }}>
+            <thead>
+              <tr><th>z (mm)</th><th>wₓ (mm)</th><th>w_y (mm)</th><th></th></tr>
+            </thead>
+            <tbody>
+              {rows.map((r, i) => (
+                <tr key={r.id}>
+                  <td><input className="snap-input" style={{ width: 90 }}
+                        value={r.z}  onChange={e => updateRow(i, { z: e.target.value })}  /></td>
+                  <td><input className="snap-input" style={{ width: 90 }}
+                        value={r.wx} onChange={e => updateRow(i, { wx: e.target.value })} /></td>
+                  <td><input className="snap-input" style={{ width: 90 }}
+                        value={r.wy} onChange={e => updateRow(i, { wy: e.target.value })} /></td>
+                  <td><button className="small-btn" onClick={() => removeRow(i)}
+                        title="Remove row">×</button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div style={{ marginTop: 4 }}>
+          <button className="small-btn" onClick={addRow}>+ Add row</button>
+          {pasteError && <span style={{ color: 'var(--danger, #d66)', marginLeft: 8, fontSize: 12 }}>{pasteError}</span>}
+        </div>
+
+        <div style={{ marginTop: 10, padding: '6px 8px', background: 'var(--panel-alt, #0002)',
+             borderRadius: 4, fontSize: 12 }}>
+          <FitReport label="X" fit={fitX} />
+          <FitReport label="Y" fit={fitY} />
+          {(!fitY || !fitY.ok) && fitX.ok && (
+            <div style={{ color: 'var(--text-muted)', marginTop: 4, fontSize: 11 }}>
+              Only X will be applied; both x and y init values will use the X fit.
+            </div>
+          )}
+        </div>
+
+        <div style={{ marginTop: 10, display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+          <button className="small-btn" onClick={onClose}>Cancel</button>
+          <button className="small-btn" onClick={apply} disabled={!fitX.ok}
+            title={fitX.ok ? 'Set waist size & position from fit' : 'Enter ≥3 valid (z, wₓ) rows first'}>
+            Apply fit
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Main mode component ────────────────────────────────────────────────────
 const BeamPropagationMode = forwardRef(function BeamPropagationMode({
   propagations: propagationsRaw, activePropagation,
@@ -781,6 +1001,7 @@ const BeamPropagationMode = forwardRef(function BeamPropagationMode({
   beamPaths, elements, symbolDefs,
 }, ref) {
   const [importOpen, setImportOpen] = useState(false)
+  const [fitModalOpen, setFitModalOpen] = useState(false)
   const [renamingId, setRenamingId] = useState(null)
   const [renameVal, setRenameVal]   = useState('')
   const [showPassthroughOptics, setShowPassthroughOptics] = useState(false)
@@ -1008,12 +1229,22 @@ const BeamPropagationMode = forwardRef(function BeamPropagationMode({
   const compute = useMemo(() => {
     if (!p) return null
     const lambda_mm = nmToMm(p.wavelength_nm)
-    const w0x = p.w0x_mm
-    const w0y = p.splitXY ? p.w0y_mm : p.w0x_mm
-    const divx = mradToRad(p.divx_mrad)
-    const divy = mradToRad(p.splitXY ? p.divy_mrad : p.divx_mrad)
-    const qx0 = qFromBeam(w0x, divx, lambda_mm)
-    const qy0 = qFromBeam(w0y, divy, lambda_mm)
+    let qx0, qy0
+    if (p.initMode === 'waist') {
+      const wx = p.wxWaist_mm
+      const zx = p.zxWaist_mm
+      const wy = p.splitXY ? p.wyWaist_mm : p.wxWaist_mm
+      const zy = p.splitXY ? p.zyWaist_mm : p.zxWaist_mm
+      qx0 = qFromWaistPosition(wx, zx, lambda_mm)
+      qy0 = qFromWaistPosition(wy, zy, lambda_mm)
+    } else {
+      const w0x = p.w0x_mm
+      const w0y = p.splitXY ? p.w0y_mm : p.w0x_mm
+      const divx = mradToRad(p.divx_mrad)
+      const divy = mradToRad(p.splitXY ? p.divy_mrad : p.divx_mrad)
+      qx0 = qFromBeam(w0x, divx, lambda_mm)
+      qy0 = qFromBeam(w0y, divy, lambda_mm)
+    }
 
     // Sort optics by z, keep those inside [0, distance_mm].
     const optics = [...(p.optics ?? [])]
@@ -1107,12 +1338,17 @@ const BeamPropagationMode = forwardRef(function BeamPropagationMode({
     doc.setFontSize(14); doc.setFont('helvetica', 'bold')
     doc.text(p.name || 'Beam propagation', 12, 14)
     doc.setFont('helvetica', 'normal'); doc.setFontSize(10)
+    const beamSpec = (p.initMode === 'waist')
+      ? (p.splitXY
+          ? `waist (x,y) = ${p.wxWaist_mm}, ${p.wyWaist_mm} mm @ z = ${p.zxWaist_mm}, ${p.zyWaist_mm} mm`
+          : `waist = ${p.wxWaist_mm} mm @ z = ${p.zxWaist_mm} mm`)
+      : (p.splitXY
+          ? `w (x,y) = ${p.w0x_mm}, ${p.w0y_mm} mm     div (x,y) = ${p.divx_mrad}, ${p.divy_mrad} mrad`
+          : `w = ${p.w0x_mm} mm     div = ${p.divx_mrad} mrad`)
     const metaParts = [
       `wavelength = ${p.wavelength_nm} nm`,
       `distance = ${p.distance_mm} mm`,
-      p.splitXY
-        ? `w0 (x,y) = ${p.w0x_mm}, ${p.w0y_mm} mm     div (x,y) = ${p.divx_mrad}, ${p.divy_mrad} mrad`
-        : `w0 = ${p.w0x_mm} mm     div = ${p.divx_mrad} mrad`,
+      beamSpec,
     ]
     doc.text(metaParts.join('     '), 12, 20)
     if (p.source) {
@@ -1348,35 +1584,75 @@ const BeamPropagationMode = forwardRef(function BeamPropagationMode({
 
             {/* Initial beam */}
             <div className="prop-section">
-              <div className="prop-section-title">
-                Initial beam at z = 0
+              <div className="prop-section-title" style={{ display: 'flex', alignItems: 'center' }}>
+                <span>Initial beam at z = 0</span>
                 <small style={{ marginLeft: 8, color: 'var(--text-muted)' }}>
-                  · w₀ is the 1/e² intensity RADIUS, in mm
+                  · w is the 1/e² intensity RADIUS, in mm
                 </small>
+                <span style={{ flex: 1 }} />
+                <button className="small-btn" onClick={() => setFitModalOpen(true)}
+                  title="Fit waist size and position from a set of beam-radius measurements">
+                  Fit from measurements…
+                </button>
               </div>
               <div className="prop-section-body">
-                <div className="prop-row">
-                  <label className="prop-field">w₀{p.splitXY ? ' (x)' : ''} (mm)
-                    <NumberField style={{ width: 90 }} step="0.01"
-                      value={p.w0x_mm} fallback={DEFAULT_W0_MM}
-                      onCommit={v => mutate({ w0x_mm: v })} /></label>
-                  <label className="prop-field">div{p.splitXY ? ' (x)' : ''} (mrad)
-                    <NumberField style={{ width: 80 }} step="0.1"
-                      value={p.divx_mrad} fallback={0}
-                      onCommit={v => mutate({ divx_mrad: v })} /></label>
-                  {p.splitXY && (
-                    <>
-                      <label className="prop-field">w₀ (y) (mm)
-                        <NumberField style={{ width: 90 }} step="0.01"
-                          value={p.w0y_mm} fallback={DEFAULT_W0_MM}
-                          onCommit={v => mutate({ w0y_mm: v })} /></label>
-                      <label className="prop-field">div (y) (mrad)
-                        <NumberField style={{ width: 80 }} step="0.1"
-                          value={p.divy_mrad} fallback={0}
-                          onCommit={v => mutate({ divy_mrad: v })} /></label>
-                    </>
-                  )}
+                <div className="prop-row" style={{ marginBottom: 4 }}>
+                  <label className="prop-field">Specify by
+                    <select className="snap-input" style={{ width: 170 }}
+                      value={p.initMode ?? 'beam'}
+                      onChange={e => mutate({ initMode: e.target.value })}>
+                      <option value="beam">Local radius + divergence</option>
+                      <option value="waist">Waist size + position</option>
+                    </select>
+                  </label>
                 </div>
+                {(p.initMode ?? 'beam') === 'waist' ? (
+                  <div className="prop-row">
+                    <label className="prop-field">w₀{p.splitXY ? ' (x)' : ''} (mm)
+                      <NumberField style={{ width: 90 }} step="0.01"
+                        value={p.wxWaist_mm} fallback={DEFAULT_W0_MM}
+                        onCommit={v => mutate({ wxWaist_mm: v })} /></label>
+                    <label className="prop-field">z of waist{p.splitXY ? ' (x)' : ''} (mm)
+                      <NumberField style={{ width: 90 }} step="1"
+                        value={p.zxWaist_mm} fallback={0}
+                        onCommit={v => mutate({ zxWaist_mm: v })} /></label>
+                    {p.splitXY && (
+                      <>
+                        <label className="prop-field">w₀ (y) (mm)
+                          <NumberField style={{ width: 90 }} step="0.01"
+                            value={p.wyWaist_mm} fallback={DEFAULT_W0_MM}
+                            onCommit={v => mutate({ wyWaist_mm: v })} /></label>
+                        <label className="prop-field">z of waist (y) (mm)
+                          <NumberField style={{ width: 90 }} step="1"
+                            value={p.zyWaist_mm} fallback={0}
+                            onCommit={v => mutate({ zyWaist_mm: v })} /></label>
+                      </>
+                    )}
+                  </div>
+                ) : (
+                  <div className="prop-row">
+                    <label className="prop-field">w{p.splitXY ? ' (x)' : ''} (mm)
+                      <NumberField style={{ width: 90 }} step="0.01"
+                        value={p.w0x_mm} fallback={DEFAULT_W0_MM}
+                        onCommit={v => mutate({ w0x_mm: v })} /></label>
+                    <label className="prop-field">div{p.splitXY ? ' (x)' : ''} (mrad)
+                      <NumberField style={{ width: 80 }} step="0.1"
+                        value={p.divx_mrad} fallback={0}
+                        onCommit={v => mutate({ divx_mrad: v })} /></label>
+                    {p.splitXY && (
+                      <>
+                        <label className="prop-field">w (y) (mm)
+                          <NumberField style={{ width: 90 }} step="0.01"
+                            value={p.w0y_mm} fallback={DEFAULT_W0_MM}
+                            onCommit={v => mutate({ w0y_mm: v })} /></label>
+                        <label className="prop-field">div (y) (mrad)
+                          <NumberField style={{ width: 80 }} step="0.1"
+                            value={p.divy_mrad} fallback={0}
+                            onCommit={v => mutate({ divy_mrad: v })} /></label>
+                      </>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -1598,6 +1874,13 @@ const BeamPropagationMode = forwardRef(function BeamPropagationMode({
           symbolDefs={symbolDefs}
           onClose={() => setImportOpen(false)}
           onImport={acceptImport}
+        />
+      )}
+      {fitModalOpen && p && (
+        <WaistFitModal
+          propagation={p}
+          onClose={() => setFitModalOpen(false)}
+          onApply={patch => { mutate(patch); setFitModalOpen(false) }}
         />
       )}
     </div>

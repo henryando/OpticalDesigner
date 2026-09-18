@@ -64,6 +64,80 @@ export function mmToUm(mm) { return mm * 1e3 }
 // Convert milliradian → radian.
 export function mradToRad(mrad) { return mrad / 1000 }
 
+// Initial q at z=0 for a beam whose waist sits at z=zWaist with radius w0.
+// Uses q(0) = q(zWaist) − zWaist  and  q(zWaist) = i·zR (pure waist).
+export function qFromWaistPosition(w0_mm, zWaist_mm, lambda_mm) {
+  const zR = Math.PI * w0_mm * w0_mm / lambda_mm
+  return { re: -zWaist_mm, im: zR }
+}
+
+// ── Beam-profiler width conventions → 1/e² intensity RADIUS in mm ──────────
+// Multiply a measured width by the corresponding factor to get the value
+// used in the ISO 11146 propagation formula. Matches Li_TA_testing.py.
+export const WIDTH_CONVERSIONS = {
+  '1/e2_radius':      1.0,
+  '1/e2_diameter':    0.5,
+  'D4sigma_diameter': 0.5,
+  'D4sigma_radius':   1.0,
+  'FWHM':             1.0 / Math.sqrt(2 * Math.log(2)),
+}
+
+// Solve a 3×3 linear system by Cramer's rule. Returns null if singular.
+function _solve3(M, r) {
+  const d = (m) =>
+      m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1])
+    - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0])
+    + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0])
+  const det = d(M)
+  if (!Number.isFinite(det) || Math.abs(det) < 1e-30) return null
+  const M0 = [[r[0], M[0][1], M[0][2]], [r[1], M[1][1], M[1][2]], [r[2], M[2][1], M[2][2]]]
+  const M1 = [[M[0][0], r[0], M[0][2]], [M[1][0], r[1], M[1][2]], [M[2][0], r[2], M[2][2]]]
+  const M2 = [[M[0][0], M[0][1], r[0]], [M[1][0], M[1][1], r[1]], [M[2][0], M[2][1], r[2]]]
+  return [d(M0) / det, d(M1) / det, d(M2) / det]
+}
+
+// Fit w(z) = √(w0² + (M²·λ·(z − z0) / (π·w0))²) via least squares on w².
+// The model is quadratic in z when squared: w² = a + b·z + c·z², so the fit
+// reduces to a 3-parameter linear system (closed form, no scipy needed).
+// Returns { ok:true, w0_mm, z0_mm, m2, r_squared, n } on success, otherwise
+// { ok:false, error }. w_mm is treated as a 1/e² intensity RADIUS.
+export function fitBeamWaist({ z_mm, w_mm, lambda_mm }) {
+  const pts = []
+  for (let i = 0; i < z_mm.length; i++) {
+    const z = z_mm[i], w = w_mm[i]
+    if (Number.isFinite(z) && Number.isFinite(w) && w > 0) pts.push([z, w])
+  }
+  if (pts.length < 3) return { ok: false, error: 'need at least 3 valid (z, w) points' }
+  let S0 = 0, S1 = 0, S2 = 0, S3 = 0, S4 = 0
+  let Sy = 0, Syz = 0, Syz2 = 0
+  for (const [z, w] of pts) {
+    const y = w * w
+    const z2 = z * z, z3 = z2 * z, z4 = z2 * z2
+    S0 += 1; S1 += z; S2 += z2; S3 += z3; S4 += z4
+    Sy += y; Syz += y * z; Syz2 += y * z2
+  }
+  const sol = _solve3([[S0, S1, S2], [S1, S2, S3], [S2, S3, S4]], [Sy, Syz, Syz2])
+  if (!sol) return { ok: false, error: 'singular fit — check that z values vary' }
+  const [a, b, c] = sol
+  if (!(c > 0)) return { ok: false, error: 'fit is not concave-up; points do not describe a waist' }
+  const z0 = -b / (2 * c)
+  const w0sq = a - (b * b) / (4 * c)
+  if (!(w0sq > 0)) return { ok: false, error: 'implied waist radius is non-positive' }
+  const w0 = Math.sqrt(w0sq)
+  const theta = Math.sqrt(c)                       // far-field half-divergence, rad
+  const m2 = (theta * Math.PI * w0) / lambda_mm
+  const ymean = Sy / S0
+  let ss_res = 0, ss_tot = 0
+  for (const [z, w] of pts) {
+    const y = w * w
+    const pred = a + b * z + c * z * z
+    ss_res += (y - pred) * (y - pred)
+    ss_tot += (y - ymean) * (y - ymean)
+  }
+  const r_squared = ss_tot > 0 ? 1 - ss_res / ss_tot : NaN
+  return { ok: true, w0_mm: w0, z0_mm: z0, m2, r_squared, n: pts.length }
+}
+
 // Initial q from local beam radius w (mm) and local divergence half-angle
 // θ (rad, positive = expanding). Uses the identity θ_local = w/R, so
 //    1/q = θ/w  -  i · λ/(π w²)
