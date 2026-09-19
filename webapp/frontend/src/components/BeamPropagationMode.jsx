@@ -6,7 +6,7 @@
 import { useMemo, useState, useRef, useEffect, useImperativeHandle, forwardRef } from 'react'
 import {
   qFromBeam, qFromWaistPosition, sampleWofZ2D, radiusFromQ,
-  propagateFreeSpace, propagateThinLens,
+  propagateFreeSpace, propagateThinLens, propagatePrismPair,
   nmToMm, mradToRad, fitBeamWaist, WIDTH_CONVERSIONS,
 } from '../utils/gaussian'
 import { serializePropagationsCsv } from '../utils/propagationCsv'
@@ -529,7 +529,7 @@ function tickLabel(v, step) {
   return v.toFixed(3)
 }
 
-function BeamPlot({ traces, events, testPoints, zTotal, width = 720, height = 240, title, onDragOptic, onResize }) {
+function BeamPlot({ traces, events, testPoints, zTotal, measurements = [], width = 720, height = 240, title, onDragOptic, onResize }) {
   const W = Math.max(360, width), H = Math.max(160, height)
   const PAD_L = 52, PAD_R = 16, PAD_B = 34
   const PAD_T_BASE = 42
@@ -552,7 +552,9 @@ function BeamPlot({ traces, events, testPoints, zTotal, width = 720, height = 24
       const ev = events[i]
       const line1 = ev.elementLabel ?? ev.label ?? 'L'
       const line2 = (ev.kind === 'lens' && Number.isFinite(Number(ev.f)) && Number(ev.f) !== 0)
-        ? `f=${ev.f}mm` : ''
+        ? `f=${ev.f}mm`
+        : (ev.kind === 'prism-pair' && Number.isFinite(Number(ev.mag)))
+          ? `${ev.axis === 'y' ? 'Y' : 'X'} ×${ev.mag}` : ''
       const charW = Math.max(line1.length, line2.length)
       const half = charW * CHAR_W / 2 + 3
       const cx = xForZ(ev.z_mm)
@@ -605,17 +607,26 @@ function BeamPlot({ traces, events, testPoints, zTotal, width = 720, height = 24
     if (d.axis === 'x') {
       const localX = e.clientX - rect.left
       onDragOptic?.(d.opticId, { z_mm: xToZ(localX) })
-    } else if (d.axis === 'y' && Number.isFinite(d.startF)) {
+    } else if (d.axis === 'y' && d.kind === 'lens' && Number.isFinite(d.startF)) {
       // Up = larger f, down = smaller.
       const newF = d.startF - dy * F_PER_PIXEL
       onDragOptic?.(d.opticId, { f_mm: Math.round(newF * 10) / 10 })
+    } else if (d.axis === 'y' && d.kind === 'prism-pair' && Number.isFinite(d.startMag)) {
+      // Up = larger M, down = smaller. One plot-height full drag = ×2 change.
+      const M_PER_PIXEL = 0.005
+      const newM = Math.max(0.05, d.startMag - dy * M_PER_PIXEL)
+      onDragOptic?.(d.opticId, { mag: Math.round(newM * 100) / 100 })
     }
   }
   function endDrag() { dragRef.current = null; resizeRef.current = null }
   // Pick a y-axis maximum that fits the widest sample across all traces
-  // with a small headroom so the beam never touches the top edge.
-  const dataMax = Math.max(0.01, ...traces.flatMap(t =>
-    t.points.map(p => p.w_mm).filter(Number.isFinite)))
+  // (and any overlaid measurement points) with a small headroom so the
+  // beam never touches the top edge.
+  const dataMax = Math.max(
+    0.01,
+    ...traces.flatMap(t => t.points.map(p => p.w_mm).filter(Number.isFinite)),
+    ...measurements.flatMap(m => (m.points ?? []).map(p => p.w_mm).filter(Number.isFinite)),
+  )
   const maxW = dataMax * 1.08
   const xOf = z => PAD_L + (z / Math.max(1e-6, zTotal)) * plotW
   const yOf = w => PAD_T + plotH - (w / maxW) * plotH
@@ -679,32 +690,38 @@ function BeamPlot({ traces, events, testPoints, zTotal, width = 720, height = 24
           (label + shape, then f=Xmm) so long labels don't collide with
           adjacent lenses. Lenses can be dragged horizontally to change z. */}
       {events.map((ev, i) => {
-        const isLens = ev.kind === 'lens'
+        const isLens  = ev.kind === 'lens'
+        const isPrism = ev.kind === 'prism-pair'
+        const enabled = ev.enabled !== false
         const isNegative = isLens && Number(ev.f) < 0
         const cx = xOf(ev.z_mm)
-        const line1 = `${ev.elementLabel ?? ev.label ?? 'L'}${
-          isLens && ev.shape && ev.shape !== 'spherical' ? ` (${ev.shape})` : ''
-        }`
-        const line2 = (isLens && Number.isFinite(ev.f) && ev.f !== 0)
-          ? `f=${ev.f}mm` : ''
-        const stroke = isLens ? '#e0b040' : 'var(--text-muted)'
+        const shapeSuffix =
+          isLens  && ev.shape && ev.shape !== 'spherical' ? ` (${ev.shape})` :
+          isPrism ? ` (${ev.axis === 'y' ? 'y' : 'x'})` : ''
+        const line1 = `${ev.elementLabel ?? ev.label ?? 'L'}${shapeSuffix}`
+        const line2 =
+          isLens  && Number.isFinite(ev.f) && ev.f !== 0 ? `f=${ev.f}mm` :
+          isPrism && Number.isFinite(ev.mag)             ? `×${ev.mag}` : ''
+        const stroke = isLens ? '#e0b040' : isPrism ? '#5ec4c4' : 'var(--text-muted)'
         const draggable = !!onDragOptic && ev.opticId != null
         const beginDrag = draggable ? (e => {
           e.stopPropagation(); e.preventDefault()
           dragRef.current = {
             opticId: ev.opticId,
+            kind:  ev.kind,      // 'lens' | 'prism-pair'
             startClientX: e.clientX,
             startClientY: e.clientY,
             startZ: ev.z_mm,
             startF: Number(ev.f),
+            startMag: Number(ev.mag),
             axis: null,   // decided on first mousemove
           }
         }) : undefined
         return (
-          <g key={`e${i}`}>
+          <g key={`e${i}`} opacity={enabled ? 1 : 0.35}>
             <line x1={cx} y1={PAD_T + LENS_H + 4} x2={cx} y2={PAD_T + plotH}
               stroke={stroke} strokeDasharray="4 3" strokeWidth={1}
-              opacity={isLens ? 0.6 : 0.3} />
+              opacity={(isLens || isPrism) ? 0.6 : 0.3} />
             {isLens && !isNegative ? (
               <image href="/symbols/b-lens1.svg"
                 x={cx - LENS_W / 2} y={iconTop}
@@ -719,6 +736,14 @@ function BeamPlot({ traces, events, testPoints, zTotal, width = 720, height = 24
                     fill="none" stroke="#e0b040" strokeWidth={1.6} />
                 )
               })()
+            ) : isPrism ? (
+              // Source SVG viewBox is 39.26 × 24.10 (landscape); rendering
+              // it into the lens icon slot keeps its native aspect ratio
+              // via preserveAspectRatio="xMidYMid meet".
+              <image href="/symbols/h_prismpair.svg"
+                x={cx - LENS_W / 2 - 6} y={iconTop}
+                width={LENS_W + 12} height={LENS_H}
+                preserveAspectRatio="xMidYMid meet" />
             ) : (
               <circle cx={cx} cy={iconTop + LENS_H / 2} r={3} fill="var(--text-muted)" opacity={0.55} />
             )}
@@ -739,14 +764,14 @@ function BeamPlot({ traces, events, testPoints, zTotal, width = 720, height = 24
               )
             })()}
             {/* Drag hit-zone: invisible rect over the icon + a bit of padding.
-                Horizontal drag → z, vertical drag → f. The first ~4 px of
-                movement decides which axis the drag is locked to. */}
-            {draggable && isLens && (
+                Horizontal drag → z, vertical drag → f (lens) or M (prism).
+                The first ~4 px of movement decides which axis is locked. */}
+            {draggable && (isLens || isPrism) && (
               <rect x={cx - LENS_W / 2 - 3} y={iconTop - 2}
                 width={LENS_W + 6} height={LENS_H + 4}
                 fill="transparent" style={{ cursor: 'move' }}
                 onMouseDown={beginDrag}>
-                <title>Drag ← → to change z · drag ↑ ↓ to change f</title>
+                <title>Drag ← → to change z · drag ↑ ↓ to change {isPrism ? 'M' : 'f'}</title>
               </rect>
             )}
           </g>
@@ -767,6 +792,28 @@ function BeamPlot({ traces, events, testPoints, zTotal, width = 720, height = 24
         <path key={`tr${i}`} d={linePathOf(t.points)}
           fill="none" stroke={t.color} strokeWidth={1.8}
           strokeLinejoin="round" strokeLinecap="round" />
+      ))}
+      {/* Measurement scatter markers — the raw beam-profiler data behind the
+          fitted initial beam. Rendered on top so they're visible against the
+          traces, clipped to the plot z range. */}
+      {measurements.map((m, gi) => (
+        <g key={`m${gi}`}>
+          {(m.points ?? []).filter(p =>
+              Number.isFinite(p.z_mm) && Number.isFinite(p.w_mm) &&
+              p.z_mm >= 0 && p.z_mm <= zTotal
+            ).map((p, i) => {
+              const cx = xOf(p.z_mm), cy = yOf(p.w_mm)
+              return m.marker === 'square' ? (
+                <rect key={i} x={cx - 3.2} y={cy - 3.2} width={6.4} height={6.4}
+                  fill={m.color} stroke="#fff" strokeWidth={0.6} />
+              ) : (
+                <circle key={i} cx={cx} cy={cy} r={3.4}
+                  fill={m.color} stroke="#fff" strokeWidth={0.6}>
+                  <title>z = {p.z_mm.toFixed(1)} mm, w = {p.w_mm.toFixed(3)} mm</title>
+                </circle>
+              )
+            })}
+        </g>
       ))}
       {/* Resize handle in the bottom-right corner. Drag to zoom the plot. */}
       {onResize && (
@@ -834,12 +881,12 @@ function WaistFitModal({ propagation, onClose, onApply }) {
 
   const fitX = columns.wx.length >= 3
     ? fitBeamWaist({ z_mm: columns.zx, w_mm: columns.wx, lambda_mm })
-    : { ok: false, error: `need ≥3 valid rows (have ${columns.wx.length})` }
+    : { ok: false, error: `need ≥3 valid rows (have ${columns.wx.length})`, warnings: [] }
   const fitY = columns.wy.length >= 3
     ? fitBeamWaist({ z_mm: columns.zy, w_mm: columns.wy, lambda_mm })
     : columns.wy.length === 0
         ? null
-        : { ok: false, error: `need ≥3 valid rows (have ${columns.wy.length})` }
+        : { ok: false, error: `need ≥3 valid rows (have ${columns.wy.length})`, warnings: [] }
 
   function updateRow(i, patch) {
     setRows(rs => rs.map((r, j) => j === i ? { ...r, ...patch } : r))
@@ -900,19 +947,136 @@ function WaistFitModal({ propagation, onClose, onApply }) {
   }
   function FitReport({ label, fit }) {
     if (!fit) return null
-    if (!fit.ok) {
+    if (fit.error) {
       return <div className="fit-line fit-err"><b>{label}:</b> {fit.error}</div>
     }
-    const flag =
-      fit.m2 > 1.3 ? ' — notably multimode' :
-      fit.m2 > 1.1 ? ' — mildly above diffraction limit' : ''
     return (
       <div className="fit-line">
         <b>{label}:</b> w₀ = {fmt(fit.w0_mm)} mm,
         {' '}z₀ = {fmt(fit.z0_mm, 2)} mm,
-        {' '}M² = {fmt(fit.m2, 3)}{flag},
+        {' '}z_R = {fmt(fit.zR_mm, 2)} mm,
         {' '}R² = {fmt(fit.r_squared, 4)}
+        {fit.warnings?.length > 0 && (
+          <ul style={{ margin: '2px 0 0 18px', padding: 0, color: '#e0b040' }}>
+            {fit.warnings.map((w, i) => <li key={i} style={{ fontSize: 11 }}>{w}</li>)}
+          </ul>
+        )}
       </div>
+    )
+  }
+
+  // ── Fit-vs-data plot ─────────────────────────────────────────────────────
+  // Small SVG plot: raw measured widths (dots) + the fitted w(z) curve
+  // (line), one axis per available series. Curves use the raw parabola
+  // coefficients (a, b, c) so they render even when the fit is unphysical,
+  // and any z where a+b·z+c·z² < 0 is simply skipped.
+  const plotData = (() => {
+    const scatterX = columns.wx.map((w, i) => ({ z: columns.zx[i], w }))
+    const scatterY = columns.wy.map((w, i) => ({ z: columns.zy[i], w }))
+    if (!scatterX.length && !scatterY.length) return null
+    const zAll = [...scatterX, ...scatterY].map(p => p.z)
+    const wAll = [...scatterX, ...scatterY].map(p => p.w)
+    if (fitX?.ok) { zAll.push(fitX.z0_mm); wAll.push(fitX.w0_mm) }
+    if (fitY?.ok) { zAll.push(fitY.z0_mm); wAll.push(fitY.w0_mm) }
+    const zMin = Math.min(...zAll), zMax = Math.max(...zAll)
+    const pad = Math.max(1e-6, (zMax - zMin) * 0.1)
+    const z0 = zMin - pad, z1 = zMax + pad
+    function curve(fit) {
+      if (!fit || !Number.isFinite(fit.w0_mm) || !Number.isFinite(fit.z0_mm) || !Number.isFinite(fit.zR_mm)) return null
+      const N = 120, out = []
+      for (let i = 0; i <= N; i++) {
+        const z = z0 + (i / N) * (z1 - z0)
+        const t = (z - fit.z0_mm) / fit.zR_mm
+        out.push({ z, w: fit.w0_mm * Math.sqrt(1 + t * t) })
+      }
+      return out
+    }
+    const curveX = curve(fitX)
+    const curveY = fitY && !fitY.error ? curve(fitY) : null
+    const wPts = [...wAll]
+    for (const c of [curveX, curveY]) if (c) for (const p of c) wPts.push(p.w)
+    const wMax = Math.max(0.01, ...wPts.filter(Number.isFinite)) * 1.1
+    return { scatterX, scatterY, curveX, curveY, z0, z1, wMax }
+  })()
+
+  function FitPlot() {
+    if (!plotData) return null
+    const { scatterX, scatterY, curveX, curveY, z0, z1, wMax } = plotData
+    const W = 560, H = 200, PADL = 46, PADR = 10, PADT = 8, PADB = 26
+    const plotW = W - PADL - PADR, plotH = H - PADT - PADB
+    const xOf = z => PADL + ((z - z0) / (z1 - z0)) * plotW
+    const yOf = w => PADT + plotH - (w / wMax) * plotH
+    const linePath = pts => pts.map((p, i) =>
+      `${i ? 'L' : 'M'}${xOf(p.z).toFixed(2)},${yOf(p.w).toFixed(2)}`).join(' ')
+    const zTicks = (() => {
+      const ticks = []
+      const step = (z1 - z0) / 5
+      for (let i = 0; i <= 5; i++) ticks.push(z0 + i * step)
+      return ticks
+    })()
+    const wTicks = (() => {
+      const ticks = []
+      const step = wMax / 4
+      for (let i = 0; i <= 4; i++) ticks.push(i * step)
+      return ticks
+    })()
+    return (
+      <svg width={W} height={H} style={{ display: 'block', background: 'var(--panel-alt, #0002)',
+           borderRadius: 4, marginTop: 8 }}>
+        <line x1={PADL} y1={PADT + plotH} x2={PADL + plotW} y2={PADT + plotH}
+          stroke="var(--text-muted)" />
+        <line x1={PADL} y1={PADT} x2={PADL} y2={PADT + plotH} stroke="var(--text-muted)" />
+        {zTicks.map((z, i) => (
+          <g key={`zt${i}`}>
+            <line x1={xOf(z)} y1={PADT + plotH} x2={xOf(z)} y2={PADT + plotH + 3}
+              stroke="var(--text-muted)" />
+            <text x={xOf(z)} y={PADT + plotH + 14} textAnchor="middle" fontSize={10}
+              fill="var(--text-muted)">{z.toFixed(0)}</text>
+          </g>
+        ))}
+        {wTicks.map((w, i) => (
+          <g key={`wt${i}`}>
+            <line x1={PADL - 3} y1={yOf(w)} x2={PADL} y2={yOf(w)} stroke="var(--text-muted)" />
+            <text x={PADL - 6} y={yOf(w)} textAnchor="end" dominantBaseline="middle" fontSize={10}
+              fill="var(--text-muted)">{w.toFixed(2)}</text>
+          </g>
+        ))}
+        <text x={PADL + plotW / 2} y={H - 4} textAnchor="middle" fontSize={10}
+          fill="var(--text-muted)">z (mm)</text>
+        <text x={10} y={PADT + plotH / 2} textAnchor="middle" fontSize={10} fill="var(--text-muted)"
+          transform={`rotate(-90 10 ${PADT + plotH / 2})`}>w (mm)</text>
+        {curveX && <path d={linePath(curveX)} fill="none" stroke="#4a9fff" strokeWidth={1.6} />}
+        {curveY && <path d={linePath(curveY)} fill="none" stroke="#e05a5a" strokeWidth={1.6} />}
+        {scatterX.map((p, i) => (
+          <circle key={`sx${i}`} cx={xOf(p.z)} cy={yOf(p.w)} r={3} fill="#4a9fff" stroke="#fff" strokeWidth={0.5} />
+        ))}
+        {scatterY.map((p, i) => (
+          <rect key={`sy${i}`} x={xOf(p.z) - 3} y={yOf(p.w) - 3} width={6} height={6}
+            fill="#e05a5a" stroke="#fff" strokeWidth={0.5} />
+        ))}
+        {/* waist markers */}
+        {fitX?.ok && (
+          <g><line x1={xOf(fitX.z0_mm)} y1={PADT} x2={xOf(fitX.z0_mm)} y2={PADT + plotH}
+              stroke="#4a9fff" strokeDasharray="3 3" strokeWidth={1} opacity={0.55} />
+              <circle cx={xOf(fitX.z0_mm)} cy={yOf(fitX.w0_mm)} r={2} fill="#4a9fff" /></g>
+        )}
+        {fitY?.ok && (
+          <g><line x1={xOf(fitY.z0_mm)} y1={PADT} x2={xOf(fitY.z0_mm)} y2={PADT + plotH}
+              stroke="#e05a5a" strokeDasharray="3 3" strokeWidth={1} opacity={0.55} />
+              <circle cx={xOf(fitY.z0_mm)} cy={yOf(fitY.w0_mm)} r={2} fill="#e05a5a" /></g>
+        )}
+        {/* legend */}
+        <g transform={`translate(${PADL + 6}, ${PADT + 6})`}>
+          {scatterX.length > 0 && (
+            <g><circle cx={4} cy={4} r={3} fill="#4a9fff" />
+               <text x={12} y={7} fontSize={10} fill="var(--text-muted)">X data / fit</text></g>
+          )}
+          {scatterY.length > 0 && (
+            <g transform="translate(90, 0)"><rect x={1} y={1} width={6} height={6} fill="#e05a5a" />
+               <text x={12} y={7} fontSize={10} fill="var(--text-muted)">Y data / fit</text></g>
+          )}
+        </g>
+      </svg>
     )
   }
 
@@ -922,15 +1086,16 @@ function WaistFitModal({ propagation, onClose, onApply }) {
            style={{ maxWidth: 620 }}>
         <div className="modal-title">Fit initial beam from measurements</div>
         <p style={{ color: 'var(--text-muted)', margin: '0 0 8px 0', fontSize: 12 }}>
-          Enter beam widths measured at multiple z positions. The ISO 11146
-          hyperbolic model is fit to give the waist size and location.
+          Enter beam widths measured at multiple z positions. The ideal
+          Gaussian propagation formula w(z)² = w₀²·(1 + ((z − z₀)/z_R)²)
+          with z_R = π·w₀²/λ is fit to give the waist size and location.
           Paste directly from Excel or a CSV — 2 columns (z, w) or 3 columns
           (z, wₓ, w_y).
         </p>
 
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
           <label>Widths measured as
-            <select className="snap-input" style={{ marginLeft: 6 }}
+            <select className="snap-input" style={{ marginLeft: 6, width: 180 }}
               value={widthDef} onChange={e => setWidthDef(e.target.value)}>
               {Object.keys(WIDTH_CONVERSIONS).map(k => (
                 <option key={k} value={k}>{k}</option>
@@ -981,11 +1146,14 @@ function WaistFitModal({ propagation, onClose, onApply }) {
             </div>
           )}
         </div>
+        <FitPlot />
 
         <div style={{ marginTop: 10, display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
           <button className="small-btn" onClick={onClose}>Cancel</button>
           <button className="small-btn" onClick={apply} disabled={!fitX.ok}
-            title={fitX.ok ? 'Set waist size & position from fit' : 'Enter ≥3 valid (z, wₓ) rows first'}>
+            title={fitX.ok
+              ? 'Set waist size & position from fit'
+              : 'X fit does not describe a real waist — add more measurements or spread them across the waist'}>
             Apply fit
           </button>
         </div>
@@ -1098,6 +1266,22 @@ const BeamPropagationMode = forwardRef(function BeamPropagationMode({
   function addOptic() {
     const optic = { id: crypto.randomUUID(), kind: 'lens', z_mm: 0, f_mm: 100, shape: 'spherical', label: 'L' + ((p?.optics?.length ?? 0) + 1) }
     mutateDiscrete({ optics: [...(p?.optics ?? []), optic] })
+  }
+  function addPrismPair() {
+    const optic = {
+      id: crypto.randomUUID(),
+      kind: 'prism-pair',
+      z_mm: 0,
+      // Default to X-axis, 2× magnification. Only meaningful when the
+      // propagation has independent x/y axes; the Role dropdown greys the
+      // prism options out otherwise, but adding one still turns split on.
+      shape: 'prismX',
+      mag: 2,
+      label: 'P' + ((p?.optics?.length ?? 0) + 1),
+    }
+    const patch = { optics: [...(p?.optics ?? []), optic] }
+    if (!p?.splitXY) patch.splitXY = true
+    mutateDiscrete(patch)
   }
   function removeOptic(idx) {
     mutateDiscrete({ optics: p.optics.filter((_, i) => i !== idx) })
@@ -1246,19 +1430,29 @@ const BeamPropagationMode = forwardRef(function BeamPropagationMode({
       qy0 = qFromBeam(w0y, divy, lambda_mm)
     }
 
-    // Sort optics by z, keep those inside [0, distance_mm].
+    // Sort optics by z, keep those inside [0, distance_mm]. Disabled optics
+    // stay in the display list (surfaced on the plot + parameters table as
+    // dimmed rows) but are skipped by the physics pipeline.
     const optics = [...(p.optics ?? [])]
       .filter(o => o.z_mm >= 0 && o.z_mm <= p.distance_mm)
       .sort((a, b) => a.z_mm - b.z_mm)
+    const activeOptics = optics.filter(o => o.enabled !== false)
 
-    // Steps: free-space between lens optics. Pass-through elements don't
-    // contribute a step but are surfaced as plot events.
+    // Steps: free-space between contributing optics. Pass-through elements
+    // and disabled optics don't contribute a step; they're surfaced as plot
+    // events for visibility only.
     const steps = []
     let cursor = 0
-    for (const o of optics) {
+    for (const o of activeOptics) {
       if (o.kind === 'lens') {
         if (o.z_mm > cursor) steps.push({ kind: 'space', L: o.z_mm - cursor })
         steps.push({ kind: 'lens', f: o.f_mm, shape: o.shape ?? 'spherical',
+                    label: o.label, elementLabel: o.elementLabel })
+        cursor = o.z_mm
+      } else if (o.kind === 'prism-pair') {
+        if (o.z_mm > cursor) steps.push({ kind: 'space', L: o.z_mm - cursor })
+        steps.push({ kind: 'prism-pair', mag: o.mag ?? 1,
+                    axis: o.shape === 'prismY' ? 'y' : 'x',
                     label: o.label, elementLabel: o.elementLabel })
         cursor = o.z_mm
       }
@@ -1267,17 +1461,21 @@ const BeamPropagationMode = forwardRef(function BeamPropagationMode({
 
     const trace = sampleWofZ2D(steps, qx0, qy0, lambda_mm)
 
-    // Build unified event list for the plot: every optic — lens or
-    // passthrough — gets a marker at its z. Passthroughs are filtered out
-    // when the propagation's Hide pass-through on plot flag is on.
+    // Build unified event list for the plot: every optic gets a marker at
+    // its z (including disabled ones — those render dimmed). Passthroughs
+    // are filtered out when the propagation's Hide pass-through on plot
+    // flag is on.
     const events = optics
-      .filter(o => !p.hidePassthroughOnPlot || o.kind === 'lens')
+      .filter(o => !p.hidePassthroughOnPlot || o.kind !== 'passthrough')
       .map(o => ({
         z_mm: o.z_mm,
-        kind: o.kind,       // 'lens' | 'passthrough'
+        kind: o.kind,       // 'lens' | 'prism-pair' | 'passthrough'
+        enabled: o.enabled !== false,
         label: o.label,
         elementLabel: o.elementLabel,
         f: o.f_mm,
+        mag: o.mag,
+        axis: o.kind === 'prism-pair' ? (o.shape === 'prismY' ? 'y' : 'x') : undefined,
         shape: o.shape ?? 'spherical',
         opticId: o.id,      // for drag-updates by id (indices shift with sort)
       }))
@@ -1285,14 +1483,19 @@ const BeamPropagationMode = forwardRef(function BeamPropagationMode({
     // Per-optic + per-test-point q sampling (independent replay for accuracy).
     function beamAt(z_mm) {
       let qx = qx0, qy = qy0, z = 0
-      for (const o of optics) {
+      for (const o of activeOptics) {
         if (o.z_mm > z_mm) break
         const dz = o.z_mm - z
         qx = propagateFreeSpace(qx, dz); qy = propagateFreeSpace(qy, dz); z += dz
-        if (o.kind !== 'lens') continue
-        const shape = o.shape ?? 'spherical'
-        if (shape === 'spherical' || shape === 'cylX') qx = propagateThinLens(qx, o.f_mm)
-        if (shape === 'spherical' || shape === 'cylY') qy = propagateThinLens(qy, o.f_mm)
+        if (o.kind === 'lens') {
+          const shape = o.shape ?? 'spherical'
+          if (shape === 'spherical' || shape === 'cylX') qx = propagateThinLens(qx, o.f_mm)
+          if (shape === 'spherical' || shape === 'cylY') qy = propagateThinLens(qy, o.f_mm)
+        } else if (o.kind === 'prism-pair') {
+          const M = o.mag ?? 1
+          if (o.shape === 'prismY') qy = propagatePrismPair(qy, M)
+          else                       qx = propagatePrismPair(qx, M)
+        }
       }
       const dz = z_mm - z
       qx = propagateFreeSpace(qx, dz); qy = propagateFreeSpace(qy, dz)
@@ -1300,15 +1503,29 @@ const BeamPropagationMode = forwardRef(function BeamPropagationMode({
     }
     const opticRows = optics.map(o => {
       const b = beamAt(o.z_mm)
-      return { kind: o.kind === 'lens' ? 'lens' : 'element',
+      return { kind: o.kind, enabled: o.enabled !== false,
                label: o.label, elementLabel: o.elementLabel, elementType: o.elementType,
-               z_mm: o.z_mm, f_mm: o.f_mm, shape: o.shape ?? 'spherical', ...b }
+               z_mm: o.z_mm, f_mm: o.f_mm, mag: o.mag,
+               shape: o.shape ?? 'spherical', ...b }
     })
     const tpRows = (p.testPoints ?? []).map(tp => ({
       kind: 'test', label: tp.label, z_mm: tp.z_mm, ...beamAt(tp.z_mm),
     }))
     const rows = [...opticRows, ...tpRows].sort((a, b) => a.z_mm - b.z_mm)
-    return { trace: { ...trace, events }, rows, optics }
+
+    // Beam-profiler measurements (raw scatter to overlay on the plot),
+    // converted to 1/e² intensity radius using the stored width convention.
+    const meas = p.waistMeasurements
+    const measFactor = meas ? (WIDTH_CONVERSIONS[meas.widthDefinition] ?? 1) : 1
+    const measX = [], measY = []
+    for (const r of (meas?.rows ?? [])) {
+      const z = parseFloat(r.z)
+      if (!Number.isFinite(z)) continue
+      const wx = parseFloat(r.wx), wy = parseFloat(r.wy)
+      if (Number.isFinite(wx) && wx > 0) measX.push({ z_mm: z, w_mm: wx * measFactor })
+      if (Number.isFinite(wy) && wy > 0) measY.push({ z_mm: z, w_mm: wy * measFactor })
+    }
+    return { trace: { ...trace, events }, rows, optics, measurements: { x: measX, y: measY } }
   }, [p])
 
   function downloadPropagationsCsv() {
@@ -1455,8 +1672,8 @@ const BeamPropagationMode = forwardRef(function BeamPropagationMode({
     doc.text('Beam parameters', 12, y); y += 5
     doc.setFontSize(9)
     const cols = p.splitXY
-      ? ['Role', 'Label', 'z (mm)', 'f (mm)', 'w_x (mm)', 'w_y (mm)', 'Element']
-      : ['Role', 'Label', 'z (mm)', 'f (mm)', 'w (mm)', 'Element']
+      ? ['Role', 'Label', 'z (mm)', 'f / M', 'w_x (mm)', 'w_y (mm)', 'Element']
+      : ['Role', 'Label', 'z (mm)', 'f / M', 'w (mm)', 'Element']
     const colX = p.splitXY
       ? [12, 60, 100, 130, 158, 190, 220]
       : [12, 60, 100, 130, 160, 200]
@@ -1465,23 +1682,30 @@ const BeamPropagationMode = forwardRef(function BeamPropagationMode({
     doc.setDrawColor(180); doc.line(12, y, pageW - 12, y)
     y += 4
     doc.setFont('helvetica', 'normal')
-    const rowsForPdf = compute.rows.filter(r => !p.hidePassthroughInTable || r.kind !== 'element')
+    const rowsForPdf = compute.rows.filter(r => !p.hidePassthroughInTable || r.kind !== 'passthrough')
     for (const r of rowsForPdf) {
-      const kindLabel = r.elementType?.trim()
+      const disabled = r.enabled === false
+      const kindLabel = (r.elementType?.trim()
         ? r.elementType.trim()
         : (r.kind === 'test' ? 'test point'
-           : r.kind === 'lens' ? 'lens' : 'pass-through')
+           : r.kind === 'lens' ? 'lens'
+           : r.kind === 'prism-pair' ? `prism pair (${r.shape === 'prismY' ? 'y' : 'x'})`
+           : 'pass-through')) + (disabled ? ' (off)' : '')
+      if (disabled) doc.setTextColor(150); else doc.setTextColor(0)
       const wx = Number.isFinite(r.wx_mm) ? r.wx_mm.toFixed(4) : '—'
       const wy = Number.isFinite(r.wy_mm) ? r.wy_mm.toFixed(4) : '—'
-      const f  = r.kind === 'lens' && Number.isFinite(r.f_mm) && r.f_mm !== 0
-                 ? r.f_mm.toFixed(1) : ''
+      const val = r.kind === 'lens' && Number.isFinite(r.f_mm) && r.f_mm !== 0
+                    ? `${r.f_mm.toFixed(1)} mm`
+                : r.kind === 'prism-pair' && Number.isFinite(r.mag)
+                    ? `M=${r.mag}` : ''
       const vals = p.splitXY
-        ? [kindLabel, r.label, r.z_mm.toFixed(1), f, wx, wy, r.elementLabel ?? '']
-        : [kindLabel, r.label, r.z_mm.toFixed(1), f, wx, r.elementLabel ?? '']
+        ? [kindLabel, r.label, r.z_mm.toFixed(1), val, wx, wy, r.elementLabel ?? '']
+        : [kindLabel, r.label, r.z_mm.toFixed(1), val, wx, r.elementLabel ?? '']
       vals.forEach((v, i) => doc.text(String(v), colX[i], y))
       y += 4.6
       if (y > pageH - 12) { doc.addPage(); y = 12 }
     }
+    doc.setTextColor(0)
 
     const safe = (p.name || 'propagation').replace(/[/\\?%*:|"<>]/g, '_').trim() || 'propagation'
     doc.save(`${safe}.pdf`)
@@ -1659,18 +1883,21 @@ const BeamPropagationMode = forwardRef(function BeamPropagationMode({
             {/* Optics */}
             {(() => {
               const allOptics = p.optics ?? []
-              const passthroughCount = allOptics.filter(o => o.kind !== 'lens').length
+              const passthroughCount = allOptics.filter(o => o.kind === 'passthrough').length
               // Preserve the original index so mutateOptic / removeOptic still
               // point at the right entry after filtering out passthrough rows.
               const visibleOptics = showPassthroughOptics
                 ? allOptics.map((o, i) => [o, i])
-                : allOptics.map((o, i) => [o, i]).filter(([o]) => o.kind === 'lens')
+                : allOptics.map((o, i) => [o, i]).filter(([o]) => o.kind !== 'passthrough')
               return (
             <div className="prop-section">
               <div className="prop-section-title">Optics</div>
               <div className="prop-section-body">
                 <div className="prop-actions">
                   <button className="small-btn" onClick={addOptic}>+ Add lens</button>
+                  <button className="small-btn" onClick={addPrismPair} style={{ marginLeft: 6 }}>
+                    + Add prism pair
+                  </button>
                   {passthroughCount > 0 && (
                     <label className="imp-toggle" style={{ marginLeft: 6 }}>
                       <input type="checkbox" checked={showPassthroughOptics}
@@ -1682,35 +1909,56 @@ const BeamPropagationMode = forwardRef(function BeamPropagationMode({
                 <table className="prop-table">
                   <thead>
                     <tr>
-                      <th>Role</th><th>Label</th><th>z (mm)</th><th>f (mm)</th>
+                      <th title="Include this optic in the propagation">On</th>
+                      <th>Role</th><th>Label</th><th>z (mm)</th><th>f / M</th>
                       <th>Element</th><th></th>
                     </tr>
                   </thead>
                   <tbody>
                     {visibleOptics.map(([o, i]) => {
-                      const isLens = o.kind === 'lens'
+                      const isLens  = o.kind === 'lens'
+                      const isPrism = o.kind === 'prism-pair'
+                      const enabled = o.enabled !== false
                       // Combined "Role" value: lens-spherical / lens-cylX /
-                      // lens-cylY / passthrough. Reads current kind+shape
-                      // and writes both on change.
-                      const role = !isLens ? 'passthrough'
-                        : (o.shape === 'cylX' ? 'lens-cylX'
-                          : o.shape === 'cylY' ? 'lens-cylY'
-                          : 'lens-spherical')
+                      // lens-cylY / prism-x / prism-y / passthrough. Reads
+                      // current kind+shape and writes both on change.
+                      const role = isPrism
+                        ? (o.shape === 'prismY' ? 'prism-y' : 'prism-x')
+                        : !isLens
+                          ? 'passthrough'
+                          : (o.shape === 'cylX' ? 'lens-cylX'
+                            : o.shape === 'cylY' ? 'lens-cylY'
+                            : 'lens-spherical')
                       function setRole(next) {
                         if (next === 'passthrough') mutateOptic(i, { kind: 'passthrough' })
                         else if (next === 'lens-cylX') mutateOptic(i, { kind: 'lens', shape: 'cylX' })
                         else if (next === 'lens-cylY') mutateOptic(i, { kind: 'lens', shape: 'cylY' })
+                        else if (next === 'prism-x')   mutateOptic(i, { kind: 'prism-pair', shape: 'prismX', mag: o.mag ?? 2 })
+                        else if (next === 'prism-y')   mutateOptic(i, { kind: 'prism-pair', shape: 'prismY', mag: o.mag ?? 2 })
                         else mutateOptic(i, { kind: 'lens', shape: 'spherical' })
                       }
+                      const rowClass =
+                        [!enabled ? 'disabled-optic' : '',
+                         (isLens || isPrism) ? '' : 'passthrough']
+                        .filter(Boolean).join(' ')
                       return (
-                        <tr key={o.id} className={isLens ? '' : 'passthrough'}>
+                        <tr key={o.id} className={rowClass}
+                            style={!enabled ? { opacity: 0.5 } : undefined}>
+                          <td style={{ textAlign: 'center' }}>
+                            <input type="checkbox" checked={enabled}
+                              title={enabled ? 'Disable — skip this optic in the propagation'
+                                             : 'Enable — include this optic'}
+                              onChange={e => mutateOptic(i, { enabled: e.target.checked })} />
+                          </td>
                           <td>
-                            <select className="snap-input" style={{ minWidth: 130 }}
+                            <select className="snap-input" style={{ minWidth: 150 }}
                               value={role}
                               onChange={e => setRole(e.target.value)}>
                               <option value="lens-spherical">Lens</option>
                               <option value="lens-cylX" disabled={!p.splitXY}>Lens (Cyl. X)</option>
                               <option value="lens-cylY" disabled={!p.splitXY}>Lens (Cyl. Y)</option>
+                              <option value="prism-x" disabled={!p.splitXY}>Prism pair (X)</option>
+                              <option value="prism-y" disabled={!p.splitXY}>Prism pair (Y)</option>
                               <option value="passthrough">Pass-through</option>
                             </select>
                           </td>
@@ -1721,6 +1969,12 @@ const BeamPropagationMode = forwardRef(function BeamPropagationMode({
                           <td>{isLens ? (
                             <NumberField style={{ width: 80 }} value={o.f_mm} fallback={0}
                               onCommit={v => mutateOptic(i, { f_mm: v })} />
+                          ) : isPrism ? (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                              <span className="dim">×</span>
+                              <NumberField style={{ width: 70 }} step="0.1" value={o.mag ?? 2} fallback={1}
+                                onCommit={v => mutateOptic(i, { mag: v })} />
+                            </span>
                           ) : <span className="dim">—</span>}</td>
                           <td className="el-meta">
                             {o.elementLabel ?? ''}{o.elementType ? ` · ${o.elementType}` : ''}
@@ -1730,7 +1984,7 @@ const BeamPropagationMode = forwardRef(function BeamPropagationMode({
                       )
                     })}
                     {(!p.optics || !p.optics.length) && (
-                      <tr><td colSpan={6} className="dim" style={{ textAlign: 'center', padding: 8 }}>
+                      <tr><td colSpan={7} className="dim" style={{ textAlign: 'center', padding: 8 }}>
                         No optics — add one above or import from a beam path.
                       </td></tr>
                     )}
@@ -1779,6 +2033,7 @@ const BeamPropagationMode = forwardRef(function BeamPropagationMode({
                       traces={[{ points: compute.trace.traceX, color: '#61afef', label: 'x' }]}
                       events={compute.trace.events}
                       testPoints={p.testPoints ?? []} zTotal={compute.trace.zTotal}
+                      measurements={[{ points: compute.measurements.x, color: '#61afef', label: 'x meas' }]}
                       width={p.plotWidth} height={p.plotHeight}
                       onResize={(w, h) => mutate({ plotWidth: w, plotHeight: h })}
                       onDragOptic={(id, patch) => mutateOpticById(id, patch)} />
@@ -1786,6 +2041,7 @@ const BeamPropagationMode = forwardRef(function BeamPropagationMode({
                       traces={[{ points: compute.trace.traceY, color: '#e06c75', label: 'y' }]}
                       events={compute.trace.events}
                       testPoints={p.testPoints ?? []} zTotal={compute.trace.zTotal}
+                      measurements={[{ points: compute.measurements.y, color: '#e06c75', label: 'y meas' }]}
                       width={p.plotWidth} height={p.plotHeight}
                       onResize={(w, h) => mutate({ plotWidth: w, plotHeight: h })}
                       onDragOptic={(id, patch) => mutateOpticById(id, patch)} />
@@ -1798,12 +2054,17 @@ const BeamPropagationMode = forwardRef(function BeamPropagationMode({
                     ]}
                     events={compute.trace.events}
                     testPoints={p.testPoints ?? []} zTotal={compute.trace.zTotal}
+                    measurements={[
+                      { points: compute.measurements.x, color: '#61afef', label: 'x meas' },
+                      { points: compute.measurements.y, color: '#e06c75', label: 'y meas', marker: 'square' },
+                    ]}
                     onDragOptic={(id, patch) => mutateOpticById(id, patch)} />
                 ) : (
                   <BeamPlot
                     traces={[{ points: compute.trace.traceX, color: '#61afef', label: 'w' }]}
                     events={compute.trace.events}
                     testPoints={p.testPoints ?? []} zTotal={compute.trace.zTotal}
+                    measurements={[{ points: compute.measurements.x, color: '#61afef', label: 'meas' }]}
                     onDragOptic={(id, patch) => mutateOpticById(id, patch)} />
                 )}
               </div>
@@ -1823,7 +2084,7 @@ const BeamPropagationMode = forwardRef(function BeamPropagationMode({
                     <thead>
                       <tr>
                         <th style={{ paddingLeft: 12 }}>Role</th><th>Label</th><th>z (mm)</th>
-                        <th>f (mm)</th>
+                        <th>f / M</th>
                         <th>w{p.splitXY ? '_x' : ''} (mm)</th>
                         {p.splitXY && <th>w_y (mm)</th>}
                         <th>Element</th>
@@ -1831,27 +2092,36 @@ const BeamPropagationMode = forwardRef(function BeamPropagationMode({
                     </thead>
                     <tbody>
                       {compute.rows
-                        .filter(r => !p.hidePassthroughInTable || r.kind !== 'element')
+                        .filter(r => !p.hidePassthroughInTable || r.kind !== 'passthrough')
                         .map((r, i) => {
                         // "Role" shows the actual element style when the optic
                         // was imported from a designer path — so mirrors read
                         // "mirror", photodetectors read "photodetector", etc.
-                        // Fallback: "lens" / "pass-through" / "test point" for
-                        // rows without a designer origin. Cylindrical lenses
-                        // get a shape suffix.
+                        // Fallback: "lens" / "prism pair (x|y)" / "pass-through" /
+                        // "test point" for rows without a designer origin.
+                        // Cylindrical lenses get a shape suffix.
                         const shapeSuffix = r.kind === 'lens' && r.shape && r.shape !== 'spherical'
                           ? ` (${r.shape === 'cylX' ? 'cyl. x' : 'cyl. y'})` : ''
+                        const prismAxis = r.shape === 'prismY' ? 'y' : 'x'
                         const roleLabel = r.elementType?.trim()
                           ? r.elementType.trim() + shapeSuffix
                           : (r.kind === 'test' ? 'test point'
-                             : r.kind === 'lens' ? 'lens' + shapeSuffix : 'pass-through')
+                             : r.kind === 'lens' ? 'lens' + shapeSuffix
+                             : r.kind === 'prism-pair' ? `prism pair (${prismAxis})`
+                             : 'pass-through')
+                        const valCell = r.kind === 'lens'
+                          ? (Number.isFinite(r.f_mm) && r.f_mm !== 0 ? r.f_mm.toFixed(1) : '—')
+                          : r.kind === 'prism-pair'
+                            ? (Number.isFinite(r.mag) ? `×${r.mag}` : '—')
+                            : ''
+                        const disabled = r.enabled === false
                         return (
-                          <tr key={i} className={r.kind === 'element' ? 'passthrough' : ''}>
-                            <td style={{ paddingLeft: 12 }}>{roleLabel}</td>
+                          <tr key={i} className={r.kind === 'passthrough' ? 'passthrough' : ''}
+                              style={disabled ? { opacity: 0.5 } : undefined}>
+                            <td style={{ paddingLeft: 12 }}>{roleLabel}{disabled ? ' (off)' : ''}</td>
                             <td>{r.label}</td>
                             <td>{r.z_mm.toFixed(1)}</td>
-                            <td>{r.kind === 'lens' && Number.isFinite(r.f_mm) && r.f_mm !== 0
-                                  ? r.f_mm.toFixed(1) : (r.kind === 'lens' ? '—' : '')}</td>
+                            <td>{valCell}</td>
                             <td>{Number.isFinite(r.wx_mm) ? r.wx_mm.toFixed(4) : '—'}</td>
                             {p.splitXY && <td>{Number.isFinite(r.wy_mm) ? r.wy_mm.toFixed(4) : '—'}</td>}
                             <td className="el-meta">{r.elementLabel ?? ''}</td>

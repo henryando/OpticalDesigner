@@ -21,7 +21,7 @@ import {
 } from './utils/cloudProjects'
 import './App.css'
 
-const DEFAULT_CONFIG = { table_length: 55, table_width: 85, origin_x: 0, origin_y: 0 }
+const DEFAULT_CONFIG = { table_length: 21, table_width: 34, origin_x: 0, origin_y: 0 }
 
 async function triggerSave(blob, suggestedName, mimeType, ext) {
   if ('showSaveFilePicker' in window) {
@@ -927,8 +927,12 @@ export default function App() {
     if (s.visiblePaths != null) setVisiblePaths(s.visiblePaths)
     if (s.visibleBg    != null) setVisibleBg(s.visibleBg)
     if (s.bgImages     != null) setBgImages(s.bgImages)
-    if (s.propagations != null) setPropagations(s.propagations)
-    if (s.activePropagation !== undefined) setActivePropagation(s.activePropagation)
+    // Propagations are per-project. If the incoming state doesn't carry them
+    // (an older project saved before the feature existed, or a fresh project
+    // that started empty), reset to empty so state from the previous project
+    // doesn't leak in.
+    setPropagations(s.propagations ?? {})
+    setActivePropagation(s.activePropagation ?? null)
     if (s.settings     != null) setSettings(prev => ({ ...prev, ...s.settings }))
     if (s.config       != null) setConfig(s.config)
     if (s.symbolDefs   != null) setSymbolDefs(s.symbolDefs)
@@ -996,6 +1000,7 @@ export default function App() {
     applyProjectState({
       elements: [], overrides: {}, beamPaths: {}, bgGroups: {},
       visiblePaths: {}, visibleBg: {}, bgImages: {},
+      propagations: {}, activePropagation: null,
       config: DEFAULT_CONFIG,
       symbolDefs: { ...DEFAULT_SYMBOL_DEFS },
       layers: { Default: true }, activeLayer: 'Default',
