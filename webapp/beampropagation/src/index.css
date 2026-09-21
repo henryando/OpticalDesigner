@@ -1,0 +1,45 @@
+*, *::before, *::after { box-sizing: border-box; }
+html, body, #root { margin: 0; padding: 0; height: 100%; width: 100%; }
+
+/* ── Theme tokens ── */
+:root {
+  --bg-app:        #1a1a2e;
+  --bg-header:     #16213e;
+  --border-header: #0f3460;
+  --bg-sidebar:    #0d1117;
+  --border-side:   #1e2a3a;
+  --bg-item:       #1a2a3a;
+  --bg-input:      #1a2a3a;
+  --border-input:  #2a3a4a;
+  --bg-canvas:     #111827;
+  --text:          #e0e0e0;
+  --text-dim:      #aaa;
+  --text-muted:    #6a8aaa;
+  --text-faint:    #3a4a5a;
+  --accent:        #1a6fa8;
+  --accent-bright: #1a8abf;
+  --accent-text:   #7ec8e3;
+  --btn-bg:        #0f3460;
+  --btn-border:    #1a6fa8;
+}
+
+[data-theme="light"] {
+  --bg-app:        #f0f4f8;
+  --bg-header:     #dde8f2;
+  --border-header: #b0c8e0;
+  --bg-sidebar:    #f8fafc;
+  --border-side:   #d0dce8;
+  --bg-item:       #e8f0f8;
+  --bg-input:      #e8f0f8;
+  --border-input:  #b0c8e0;
+  --bg-canvas:     #edf2f7;
+  --text:          #1a2a3a;
+  --text-dim:      #4a6080;
+  --text-muted:    #5a7898;
+  --text-faint:    #9ab0c8;
+  --accent:        #1a6fa8;
+  --accent-bright: #1a8abf;
+  --accent-text:   #1a5a90;
+  --btn-bg:        #dde8f2;
+  --btn-border:    #1a6fa8;
+}

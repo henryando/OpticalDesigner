@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Generator: Adobe Illustrator 11 Build 196, SVG Export Plug-In . SVG Version: 6.0.0 Build 78)  -->
+
+<svg 
+	 xmlns:x="http://ns.adobe.com/Extensibility/1.0/" xmlns:i="http://ns.adobe.com/AdobeIllustrator/10.0/" xmlns:graph="http://ns.adobe.com/Graphs/1.0/" i:viewOrigin="195.665 310.1226" i:rulerOrigin="-197 -304.165" i:pageBounds="197 307 199.835 304.165"
+	 xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:a="http://ns.adobe.com/AdobeSVGViewerExtensions/3.0/"
+	 width="16.34" height="23.427" viewBox="0 0 16.34 23.427" overflow="visible" enable-background="new 0 0 16.34 23.427"
+	 xml:space="preserve">
+	
+		<g id="Layer_1" i:layer="yes" i:dimmedPercent="50" i:rgbTrio="#4F008000FFFF">
+			<g>
+				<radialGradient id="XMLID_2_" cx="8.8789" cy="7.4604" r="17.0666" fx="8.8789" fy="7.4604" gradientUnits="userSpaceOnUse">
+					<stop  offset="0" style="stop-color:#FEDE58"/>
+					<stop  offset="0.6854" style="stop-color:#01AD4E"/>
+
+				</radialGradient>
+				<path fill="url(#XMLID_2_)" stroke="#000000" stroke-width="0.75" d="M6.044,1.792
+					c-0.985,0-1.936,0.148-2.835,0.417v19.009c0.899,0.268,1.85,0.416,2.835,0.416c5.479,0,9.921-4.441,9.921-9.922
+					C15.965,6.234,11.523,1.792,6.044,1.792z"/>
+				<rect x="0.375" y="0.375" stroke="#000000" stroke-width="0.75" width="2.835" height="22.677"/> 
+			</g>
+		</g>
+	</svg>

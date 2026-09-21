@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Generator: Adobe Illustrator 11 Build 196, SVG Export Plug-In . SVG Version: 6.0.0 Build 78)  -->
+
+<svg 
+	 xmlns:x="http://ns.adobe.com/Extensibility/1.0/" xmlns:i="http://ns.adobe.com/AdobeIllustrator/10.0/" xmlns:graph="http://ns.adobe.com/Graphs/1.0/" i:viewOrigin="-20.0996 18.2383" i:rulerOrigin="-2 -0.834" i:pageBounds="2 3.6689 4.835 0.834"
+	 xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:a="http://ns.adobe.com/AdobeSVGViewerExtensions/3.0/"
+	 width="37.681" height="34.872" viewBox="0 0 37.681 34.872" overflow="visible" enable-background="new 0 0 37.681 34.872"
+	 xml:space="preserve">
+	
+		<g id="Layer_1" i:layer="yes" i:dimmedPercent="50" i:rgbTrio="#4F008000FFFF">
+			<g>
+				
+					<radialGradient id="XMLID_2_" cx="69.209" cy="183.7812" r="17.7302" fx="69.209" fy="183.7812" gradientTransform="matrix(0.9987 -0.0508 0.0508 0.9987 -59.3349 -162.6969)" gradientUnits="userSpaceOnUse">
+					<stop  offset="0.0056" style="stop-color:#FFE8FB"/>
+					<stop  offset="0.7217" style="stop-color:#FFA6C4"/>
+					<stop  offset="1" style="stop-color:#FF8BAE"/>
+
+				</radialGradient>
+				
+					<polygon fill="url(#XMLID_2_)" stroke="#D4496D" stroke-width="1.2402" stroke-linecap="round" stroke-linejoin="bevel" points="
+					37.309,15.888 19.503,2.556 9.086,0.609 0.564,11.566 4.978,21.247 22.772,34.373 "/>
+				
+					<polygon fill-rule="evenodd" clip-rule="evenodd" fill="none" stroke="#D4496D" stroke-width="1.2402" stroke-linecap="round" stroke-linejoin="bevel" points="
+					30.162,25.119 3.586,18.223 16.179,2.104 "/>
+			</g>
+		</g>
+	</svg>

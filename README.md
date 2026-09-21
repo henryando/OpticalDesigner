@@ -185,6 +185,8 @@ Drag the divider between the canvas and the sidebar to resize the sidebar.
 
 <p align="center"><img src="docs/screenshots/propagation-sandbox.gif" alt="Setting up a beam propagation" width="720" /></p>
 
+> Beam Propagation is also available as a standalone app at [beampropagation.netlify.app](https://beampropagation.netlify.app) (source in [webapp/beampropagation](webapp/beampropagation)). Upload a project `.zip` from **File ▾ → Download Project** to use **Import…** there; plots use the same `propagations.csv` format, so they move freely between the two. It also shares the designer's cloud projects and login when cloud storage is configured (see its [README](webapp/beampropagation/README.md#cloud-projects-optional)). A step-by-step [User Guide](webapp/beampropagation/USER_GUIDE.md) for the standalone app is available.
+
 **Import from a designer beam path** brings a whole path in with real inter-element distances (× 25.4 mm/in) and pre-fills each lens's focal length from the element's `f_mm` / `Focal Length` column / `Annotation` (`f = 100 mm` and variants understood). Non-lens elements come in as pass-throughs. The **Reimport** button on an imported propagation refreshes distances and focal lengths from the current designer state while keeping the same path and any user-added optics.
 
 <p align="center"><img src="docs/screenshots/propagation-import.gif" alt="Importing a beam path into propagation" width="720" /></p>

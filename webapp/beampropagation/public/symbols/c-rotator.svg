@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Generator: Adobe Illustrator 11 Build 196, SVG Export Plug-In . SVG Version: 6.0.0 Build 78)  -->
+
+<svg 
+	 xmlns:x="http://ns.adobe.com/Extensibility/1.0/" xmlns:i="http://ns.adobe.com/AdobeIllustrator/10.0/" xmlns:graph="http://ns.adobe.com/Graphs/1.0/" i:viewOrigin="185.6646 310.0986" i:rulerOrigin="-197 -304.165" i:pageBounds="197 307 199.835 304.165"
+	 xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:a="http://ns.adobe.com/AdobeSVGViewerExtensions/3.0/"
+	 width="37.601" height="23.428" viewBox="0 0 37.601 23.428" overflow="visible" enable-background="new 0 0 37.601 23.428"
+	 xml:space="preserve">
+	
+		<g id="Layer_1" i:layer="yes" i:dimmedPercent="50" i:rgbTrio="#4F008000FFFF">
+			<g>
+				
+					<linearGradient id="XMLID_3_" gradientUnits="userSpaceOnUse" x1="43.5034" y1="101.6074" x2="61.2194" y2="83.8915" gradientTransform="matrix(0.8 0 0 0.8 -34.4283 -62.4857)">
+					<stop  offset="0" style="stop-color:#FFFFFF"/>
+					<stop  offset="1" style="stop-color:#89A4B6"/>
+
+				</linearGradient>
+				
+					<rect x="0.375" y="4.627" fill="url(#XMLID_3_)" stroke="#000000" stroke-width="0.75" width="14.171" height="14.174"/> 
+				<line fill="none" stroke="#000000" stroke-width="0.75" x1="0.375" y1="4.627" x2="14.546" y2="18.801"/>
+				
+					<linearGradient id="XMLID_4_" gradientUnits="userSpaceOnUse" x1="75.3931" y1="106.9209" x2="75.3931" y2="78.5742" gradientTransform="matrix(0.8 0 0 0.8 -34.4283 -62.4857)">
+					<stop  offset="0" style="stop-color:#FFFFFF"/>
+					<stop  offset="0.1314" style="stop-color:#C4C4C4"/>
+					<stop  offset="0.3752" style="stop-color:#5C5C5C"/>
+					<stop  offset="0.5444" style="stop-color:#1A1A1A"/>
+					<stop  offset="0.6236" style="stop-color:#000000"/>
+					<stop  offset="0.6657" style="stop-color:#151515"/>
+					<stop  offset="0.7529" style="stop-color:#4C4C4C"/>
+					<stop  offset="0.8765" style="stop-color:#A2A2A2"/>
+					<stop  offset="1" style="stop-color:#FFFFFF"/>
+
+				</linearGradient>
+				
+					<rect x="14.55" y="0.375" fill="url(#XMLID_4_)" stroke="#000000" stroke-width="0.75" width="22.676" height="22.678"/> 
+			</g>
+		</g>
+	</svg>

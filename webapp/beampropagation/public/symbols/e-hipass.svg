@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Generator: Adobe Illustrator 11 Build 196, SVG Export Plug-In . SVG Version: 6.0.0 Build 78)  -->
+
+<svg 
+	 xmlns:x="http://ns.adobe.com/Extensibility/1.0/" xmlns:i="http://ns.adobe.com/AdobeIllustrator/10.0/" xmlns:graph="http://ns.adobe.com/Graphs/1.0/" i:viewOrigin="191.6729 311.4766" i:rulerOrigin="-197 -304.165" i:pageBounds="197 307 199.835 304.165"
+	 xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:a="http://ns.adobe.com/AdobeSVGViewerExtensions/3.0/"
+	 width="26.211" height="25.184" viewBox="0 0 26.211 25.184" overflow="visible" enable-background="new 0 0 26.211 25.184"
+	 xml:space="preserve">
+	
+		<g id="Layer_1" i:layer="yes" i:dimmedPercent="50" i:rgbTrio="#4F008000FFFF">
+			<g>
+				
+					<radialGradient id="XMLID_2_" cx="1485.4951" cy="979.2988" r="88.7403" fx="1485.4951" fy="979.2988" gradientTransform="matrix(0.278 0 0 0.318 -400.2501 -298.8252)" gradientUnits="userSpaceOnUse">
+					<stop  offset="0.0056" style="stop-color:#FFFFFF"/>
+					<stop  offset="0.0904" style="stop-color:#F7F7F7"/>
+					<stop  offset="0.2242" style="stop-color:#E0E0E0"/>
+					<stop  offset="0.3903" style="stop-color:#BBBBBB"/>
+					<stop  offset="0.582" style="stop-color:#888888"/>
+					<stop  offset="0.7926" style="stop-color:#474747"/>
+					<stop  offset="1" style="stop-color:#000000"/>
+
+				</radialGradient>
+				
+					<rect x="0.367" y="0.367" fill-rule="evenodd" clip-rule="evenodd" fill="url(#XMLID_2_)" stroke="#000000" stroke-width="0.7335" width="25.478" height="24.449"/> 
+				<polyline fill="none" stroke="#000000" stroke-width="1.467" points="3.981,19.343 9.651,19.344 16.737,6.587 
+					22.407,6.587 "/>
+			</g>
+		</g>
+	</svg>

@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Generator: Adobe Illustrator 11 Build 196, SVG Export Plug-In . SVG Version: 6.0.0 Build 78)  -->
+
+<svg 
+	 xmlns:x="http://ns.adobe.com/Extensibility/1.0/" xmlns:i="http://ns.adobe.com/AdobeIllustrator/10.0/" xmlns:graph="http://ns.adobe.com/Graphs/1.0/" i:viewOrigin="189.6646 313.6025" i:rulerOrigin="-197 -304.165" i:pageBounds="197 307 199.835 304.165"
+	 xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:a="http://ns.adobe.com/AdobeSVGViewerExtensions/3.0/"
+	 width="29.097" height="29.097" viewBox="0 0 29.097 29.097" overflow="visible" enable-background="new 0 0 29.097 29.097"
+	 xml:space="preserve">
+	
+		<g id="Layer_1" i:layer="yes" i:dimmedPercent="50" i:rgbTrio="#4F008000FFFF">
+			<g>
+				
+					<radialGradient id="XMLID_2_" cx="14.5483" cy="14.5479" r="14.1733" fx="14.5483" fy="14.5479" gradientUnits="userSpaceOnUse">
+					<stop  offset="0.0056" style="stop-color:#A0A0A0"/>
+					<stop  offset="0.2268" style="stop-color:#A3A3A3"/>
+					<stop  offset="0.3952" style="stop-color:#ADADAD"/>
+					<stop  offset="0.5462" style="stop-color:#BDBDBD"/>
+					<stop  offset="0.6869" style="stop-color:#D4D4D4"/>
+					<stop  offset="0.8195" style="stop-color:#F1F1F1"/>
+					<stop  offset="0.8708" style="stop-color:#FFFFFF"/>
+					<stop  offset="0.8855" style="stop-color:#FAFAFA"/>
+					<stop  offset="0.9032" style="stop-color:#EBEBEC"/>
+					<stop  offset="0.9227" style="stop-color:#D3D2D4"/>
+					<stop  offset="0.9433" style="stop-color:#B2B0B3"/>
+					<stop  offset="0.9648" style="stop-color:#878489"/>
+					<stop  offset="0.9867" style="stop-color:#534F56"/>
+					<stop  offset="1" style="stop-color:#302B33"/>
+
+				</radialGradient>
+				<circle fill="url(#XMLID_2_)" stroke="#000000" stroke-width="0.75" cx="14.549" cy="14.548" r="14.174"/> 
+				<line fill="none" stroke="#000000" stroke-width="1.5" x1="7.461" y1="7.461" x2="21.634" y2="21.634"/>
+				<line fill="none" stroke="#000000" stroke-width="1.5" x1="7.461" y1="21.634" x2="21.634" y2="7.461"/>
+			</g>
+		</g>
+	</svg>

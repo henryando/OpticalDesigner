@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Generator: Adobe Illustrator 11 Build 196, SVG Export Plug-In . SVG Version: 6.0.0 Build 78)  -->
+
+<svg 
+	 xmlns:x="http://ns.adobe.com/Extensibility/1.0/" xmlns:i="http://ns.adobe.com/AdobeIllustrator/10.0/" xmlns:graph="http://ns.adobe.com/Graphs/1.0/" i:viewOrigin="167.4126 321.9497" i:rulerOrigin="-197 -304.165" i:pageBounds="197 307 199.835 304.165"
+	 xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:a="http://ns.adobe.com/AdobeSVGViewerExtensions/3.0/"
+	 width="73.034" height="46.106" viewBox="0 0 73.034 46.106" overflow="visible" enable-background="new 0 0 73.034 46.106"
+	 xml:space="preserve">
+	
+		<g id="Layer_1" i:layer="yes" i:dimmedPercent="50" i:rgbTrio="#4F008000FFFF">
+			<g>
+				<g>
+					<g>
+						<linearGradient id="XMLID_3_" gradientUnits="userSpaceOnUse" x1="30.8477" y1="45.731" x2="30.8477" y2="0.3765">
+							<stop  offset="0" style="stop-color:#FFFFFF"/>
+							<stop  offset="1" style="stop-color:#89A4B6"/>
+
+						</linearGradient>
+						<path fill="url(#XMLID_3_)" d="M4.626,0.376v14.883c-2.348,0-4.251,3.49-4.251,7.794
+							s1.904,7.794,4.251,7.795v14.883H61.32V0.376H4.626z"/>
+					</g>
+					<g>
+						<path fill="none" stroke="#000000" stroke-width="0.75" d="M4.626,0.376v14.883
+							c-2.348,0-4.251,3.49-4.251,7.794s1.904,7.794,4.251,7.795v14.883H61.32V0.376H4.626z"/>
+					</g>
+				</g>
+				<rect x="59.902" y="0.375" stroke="#000000" stroke-width="0.75" width="4.252" height="45.356"/> 
+				<rect x="64.154" y="0.376" stroke="#000000" stroke-width="0.75" width="8.505" height="1.417"/> 
+				<rect x="64.154" y="3.92" stroke="#000000" stroke-width="0.75" width="8.505" height="1.417"/> 
+				<rect x="64.154" y="7.463" stroke="#000000" stroke-width="0.75" width="8.505" height="1.417"/> 
+				<rect x="64.154" y="11.006" stroke="#000000" stroke-width="0.75" width="8.505" height="1.417"/> 
+				<rect x="64.154" y="33.684" stroke="#000000" stroke-width="0.75" width="8.505" height="1.416"/> 
+				<rect x="64.154" y="37.227" stroke="#000000" stroke-width="0.75" width="8.505" height="1.418"/> 
+				<rect x="64.154" y="40.77" stroke="#000000" stroke-width="0.75" width="8.505" height="1.418"/> 
+				<rect x="64.154" y="44.313" stroke="#000000" stroke-width="0.75" width="8.505" height="1.418"/> 
+				<g>
+					
+						<radialGradient id="XMLID_4_" cx="74.9292" cy="344.4839" r="10.9246" fx="74.9292" fy="344.4839" gradientTransform="matrix(-0.3342 -0.9425 0.9425 -0.3342 -268.0802 203.0597)" gradientUnits="userSpaceOnUse">
+						<stop  offset="0" style="stop-color:#FFFFFF"/>
+						<stop  offset="1" style="stop-color:#FFFF3E"/>
+
+					</radialGradient>
+					<polygon fill="url(#XMLID_4_)" stroke="#C28A36" stroke-width="0.75" points="16.788,12.774 22.946,30.139 
+						39.533,24.258 45.091,18.374 41.397,7.958 33.375,6.892 "/>
+					<line fill="none" stroke="#C28A36" stroke-width="0.75" x1="20.104" y1="22.125" x2="41.173" y2="22.172"/>
+					<line fill="none" stroke="#C28A36" stroke-width="0.75" x1="41.173" y1="22.172" x2="35.962" y2="7.479"/>
+					<line fill="none" stroke="#C28A36" stroke-width="0.75" x1="35.962" y1="7.479" x2="20.104" y2="22.125"/>
+				</g>
+			</g>
+		</g>
+	</svg>

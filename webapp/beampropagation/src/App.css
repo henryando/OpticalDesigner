@@ -1,0 +1,160 @@
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body { font-family: system-ui, sans-serif; background: var(--bg-app); color: var(--text); }
+
+#root { width: 100vw; max-width: 100%; }
+
+.app { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  background: var(--bg-header);
+  border-bottom: 1px solid var(--border-header);
+  flex-shrink: 0;
+}
+
+.app-title { font-size: 15px; font-weight: 600; color: var(--text); letter-spacing: 0.5px; white-space: nowrap; }
+
+/* The logo is a square SVG with empty space above and below; crop to the artwork. */
+.app-logo { width: 44px; height: 26px; object-fit: cover; vertical-align: -8px; margin-right: 8px; }
+
+.project-name-badge {
+  font-size: 11px; color: var(--text-muted);
+  padding: 2px 8px; margin-left: 10px;
+  background: var(--bg-item); border-radius: 10px;
+}
+
+.header-controls { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+
+a.file-btn { text-decoration: none; }
+.file-btn, a.file-btn {
+  background: var(--btn-bg);
+  color: var(--text);
+  border: 1px solid var(--btn-border);
+  border-radius: 4px;
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s;
+  white-space: nowrap;
+}
+.file-btn:hover:not(:disabled), a.file-btn:hover { background: var(--accent); }
+.file-btn:disabled { opacity: 0.4; cursor: default; }
+.file-btn-accent { background: var(--accent); border-color: var(--accent-bright); }
+.file-btn-accent:hover:not(:disabled) { background: var(--accent-bright); }
+
+.hdr-sep { width: 1px; height: 18px; background: var(--border-header); flex-shrink: 0; }
+
+.file-menu { position: relative; }
+
+.file-menu-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 400;
+  min-width: 190px;
+  background: var(--bg-header);
+  border: 1px solid var(--border-header);
+  border-radius: 4px;
+  box-shadow: 0 4px 16px #0006;
+  padding: 4px 0;
+  white-space: nowrap;
+}
+
+.file-menu-label {
+  padding: 4px 12px 2px;
+  font-size: 10px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.file-menu-sep { height: 1px; background: var(--border-header); margin: 4px 0; }
+
+.file-menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  color: var(--text);
+  font-size: 12px;
+  padding: 5px 12px;
+  cursor: pointer;
+}
+.file-menu-item:hover:not(:disabled) { background: var(--accent); }
+.file-menu-item:disabled { opacity: 0.4; cursor: default; }
+
+.gen-banner {
+  background: var(--bg-header);
+  border-bottom: 1px solid var(--accent);
+  padding: 8px 16px;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+.gen-banner pre { flex: 1; white-space: pre-wrap; color: var(--accent-text); }
+.gen-banner button { background: none; border: none; color: var(--text-dim); cursor: pointer; font-size: 16px; }
+.gen-banner-error { border-bottom-color: #ff4444; }
+.gen-banner-error pre { color: #ff6b6b; }
+
+.app-body { display: flex; flex: 1; overflow: hidden; position: relative; }
+
+.drop-overlay {
+  position: fixed; inset: 0; z-index: 500;
+  display: flex; align-items: center; justify-content: center;
+  background: color-mix(in srgb, var(--bg-sidebar) 85%, transparent);
+  border: 3px dashed var(--accent-bright); box-sizing: border-box;
+  pointer-events: none; font-size: 18px; font-weight: 600; color: var(--text);
+}
+
+/* Modal backdrop + box */
+.modal-backdrop {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.55);
+  display: flex; align-items: center; justify-content: center; z-index: 500;
+}
+.modal-box {
+  background: var(--bg-sidebar); border: 1px solid var(--border-side);
+  border-radius: 8px; padding: 18px; min-width: 260px; max-width: 90vw;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+}
+.modal-box-wide { min-width: 360px; }
+.modal-title { font-size: 14px; font-weight: 600; margin-bottom: 12px; }
+.modal-text { font-size: 12px; color: var(--text-dim); margin-bottom: 14px; line-height: 1.5; }
+.modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
+
+/* Shared small controls (same look as the designer's sidebar) */
+.small-btn {
+  background: var(--bg-item); border: 1px solid var(--border-input);
+  color: var(--text-dim); border-radius: 3px; padding: 1px 6px;
+  font-size: 0.833em; cursor: pointer;
+}
+.small-btn:disabled { opacity: 0.4; cursor: default; }
+.small-btn:hover:not(:disabled) { background: var(--border-input); color: var(--text); }
+
+.snap-input {
+  width: 56px;
+  background: var(--bg-input); border: 1px solid var(--border-input);
+  border-radius: 3px; color: var(--text); font-size: 0.917em; padding: 2px 6px;
+}
+.snap-input:focus { outline: none; border-color: var(--accent-bright); }
+
+/* Project list in the Open Cloud Project modal */
+.project-list { list-style: none; display: flex; flex-direction: column; gap: 4px; max-height: 50vh; overflow-y: auto; }
+.project-item { display: flex; align-items: center; gap: 6px; border-radius: 5px; }
+.project-item-current .project-item-name { border-color: var(--accent-bright); }
+.project-item-name {
+  flex: 1; display: flex; justify-content: space-between; align-items: baseline;
+  gap: 8px; background: var(--bg-item); border: 1px solid var(--border-side);
+  border-radius: 4px; padding: 6px 10px; cursor: pointer; text-align: left;
+  color: var(--text);
+}
+.project-item-name:hover { border-color: var(--accent); }
+.project-item-label { font-size: 13px; font-weight: 500; }
+.project-item-date  { font-size: 10px; color: var(--text-muted); white-space: nowrap; }
+.project-item-del   { flex-shrink: 0; }

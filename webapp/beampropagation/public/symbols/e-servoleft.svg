@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Generator: Adobe Illustrator 11 Build 196, SVG Export Plug-In . SVG Version: 6.0.0 Build 78)  -->
+
+<svg 
+	 xmlns:x="http://ns.adobe.com/Extensibility/1.0/" xmlns:i="http://ns.adobe.com/AdobeIllustrator/10.0/" xmlns:graph="http://ns.adobe.com/Graphs/1.0/" i:viewOrigin="187.7148 317.9824" i:rulerOrigin="-197 -304.165" i:pageBounds="197 307 199.835 304.165"
+	 xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:a="http://ns.adobe.com/AdobeSVGViewerExtensions/3.0/"
+	 width="33.016" height="38.121" viewBox="0 0 33.016 38.121" overflow="visible" enable-background="new 0 0 33.016 38.121"
+	 xml:space="preserve">
+	
+		<g id="Layer_1" i:layer="yes" i:dimmedPercent="50" i:rgbTrio="#4F008000FFFF">
+			<g>
+				
+					<radialGradient id="XMLID_2_" cx="-361.8105" cy="19.0605" r="17.2221" fx="-361.8105" fy="19.0605" gradientTransform="matrix(-1 0 0 1 -345.1152 0)" gradientUnits="userSpaceOnUse">
+					<stop  offset="0" style="stop-color:#FFFFFF"/>
+					<stop  offset="1" style="stop-color:#A0A0A0"/>
+
+				</radialGradient>
+				<polygon fill="url(#XMLID_2_)" stroke="#000000" stroke-width="0.75" points="0.75,19.061 32.641,37.471 
+					32.641,0.649 "/>
+				<g>
+					<path d="M22.01,9.649c0.564-0.096,1.356-0.168,2.473-0.168c1.128,0,1.943,0.217,2.484,0.66
+						c0.516,0.396,0.852,1.068,0.852,1.861c0,0.803-0.252,1.474-0.732,1.919c-0.623,0.576-1.56,0.852-2.64,0.852
+						c-0.24,0-0.456-0.012-0.624-0.049v2.904H22.01V9.649z M23.822,13.322c0.156,0.035,0.348,0.047,0.611,0.047
+						c0.973,0,1.572-0.492,1.572-1.308c0-0.744-0.504-1.188-1.428-1.188c-0.372,0-0.624,0.023-0.756,0.061V13.322z"/>
+				</g>
+				<g>
+					<path d="M17.456,15.211v8.088h-1.823v-8.088H17.456z"/>
+				</g>
+				<g>
+					<path d="M22.047,20.998c0.672-0.119,1.548-0.18,2.46-0.18c1.548,0,2.556,0.252,3.324,0.84
+						c0.84,0.625,1.368,1.633,1.368,3.072c0,1.549-0.564,2.617-1.332,3.277c-0.852,0.707-2.16,1.043-3.744,1.043
+						c-0.948,0-1.633-0.061-2.076-0.119V20.998z M23.871,27.588c0.156,0.035,0.42,0.035,0.636,0.035
+						c1.668,0.012,2.761-0.9,2.761-2.832c0-1.74-0.984-2.568-2.568-2.568c-0.396,0-0.672,0.037-0.828,0.072V27.588z"/>
+				</g>
+			</g>
+		</g>
+	</svg>

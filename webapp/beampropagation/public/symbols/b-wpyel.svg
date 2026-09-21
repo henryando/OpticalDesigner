@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Generator: Adobe Illustrator 11 Build 196, SVG Export Plug-In . SVG Version: 6.0.0 Build 78)  -->
+
+<svg 
+	 xmlns:x="http://ns.adobe.com/Extensibility/1.0/" xmlns:i="http://ns.adobe.com/AdobeIllustrator/10.0/" xmlns:graph="http://ns.adobe.com/Graphs/1.0/" i:viewOrigin="1.665 15.5635" i:rulerOrigin="-2 -0.834" i:pageBounds="2 3.6689 4.835 0.834"
+	 xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:a="http://ns.adobe.com/AdobeSVGViewerExtensions/3.0/"
+	 width="5" height="23.428" viewBox="0 0 5 23.428" overflow="visible" enable-background="new 0 0 5 23.428" xml:space="preserve">
+	
+		<g id="Layer_1" i:layer="yes" i:dimmedPercent="50" i:rgbTrio="#4F008000FFFF">
+			
+				<linearGradient id="XMLID_2_" gradientUnits="userSpaceOnUse" x1="347.5576" y1="37.3613" x2="347.5576" y2="14.6836" gradientTransform="matrix(0.35 0 0 1 -119.1455 -14.3086)">
+				<stop  offset="0.0056" style="stop-color:#FF9900"/>
+				<stop  offset="0.5" style="stop-color:#FFFFFF"/>
+				<stop  offset="1" style="stop-color:#FF9900"/>
+
+			</linearGradient>
+			
+				<rect x="0.375" y="0.375" fill="url(#XMLID_2_)" stroke="#000000" stroke-width="0.75" width="4.25" height="22.678"/> 
+		</g>
+	</svg>

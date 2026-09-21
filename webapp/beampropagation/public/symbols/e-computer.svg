@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Generator: Adobe Illustrator 11 Build 196, SVG Export Plug-In . SVG Version: 6.0.0 Build 78)  -->
+
+<svg 
+	 xmlns:x="http://ns.adobe.com/Extensibility/1.0/" xmlns:i="http://ns.adobe.com/AdobeIllustrator/10.0/" xmlns:graph="http://ns.adobe.com/Graphs/1.0/" i:viewOrigin="167.8613 329.1685" i:rulerOrigin="-197 -304.165" i:pageBounds="197 307 199.835 304.165"
+	 xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:a="http://ns.adobe.com/AdobeSVGViewerExtensions/3.0/"
+	 width="72.735" height="60.528" viewBox="0 0 72.735 60.528" overflow="visible" enable-background="new 0 0 72.735 60.528"
+	 xml:space="preserve">
+	
+		<g id="Layer_1" i:layer="yes" i:dimmedPercent="50" i:rgbTrio="#4F008000FFFF">
+			<g>
+				<g>
+					<rect x="6.604" y="0.5" fill="#A8ADA8" stroke="#A8ADA8" width="59.527" height="43.938"/> 
+					<path fill="#FFFFFF" stroke="#A8ADA8" d="M61.879,33.686c0,3.59-2.844,6.5-6.352,6.5H17.209
+						c-3.508,0-6.354-2.91-6.354-6.5V9.835c0-3.59,2.846-6.5,6.354-6.5h38.318c3.508,0,6.352,2.91,6.352,6.5V33.686z"/>
+					<polygon fill="#FFFFFF" stroke="#A8ADA8" points="6.604,48.69 66.131,48.69 71.801,57.194 0.934,57.194 "/>
+					<rect x="0.934" y="57.194" fill="#A8ADA8" stroke="#A8ADA8" width="70.867" height="2.834"/> 
+				</g>
+				<line fill="none" stroke="#A8ADA8" x1="7.945" y1="50.749" x2="48.957" y2="50.749"/>
+				<line fill="none" stroke="#A8ADA8" x1="6.265" y1="52.959" x2="49.486" y2="52.959"/>
+				<line fill="none" stroke="#A8ADA8" x1="4.501" y1="55.17" x2="49.93" y2="55.17"/>
+				<line fill="none" stroke="#A8ADA8" x1="50.482" y1="50.749" x2="65.227" y2="50.749"/>
+				<line fill="none" stroke="#A8ADA8" x1="51.014" y1="52.959" x2="66.311" y2="52.959"/>
+				<line fill="none" stroke="#A8ADA8" x1="51.543" y1="55.17" x2="67.549" y2="55.17"/>
+			</g>
+		</g>
+	</svg>

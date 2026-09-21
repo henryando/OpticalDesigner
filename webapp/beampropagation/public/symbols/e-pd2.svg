@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Generator: Adobe Illustrator 11 Build 196, SVG Export Plug-In . SVG Version: 6.0.0 Build 78)  -->
+
+<svg 
+	 xmlns:x="http://ns.adobe.com/Extensibility/1.0/" xmlns:i="http://ns.adobe.com/AdobeIllustrator/10.0/" xmlns:graph="http://ns.adobe.com/Graphs/1.0/" i:viewOrigin="194.0112 309.2246" i:rulerOrigin="-197 -304.165" i:pageBounds="197 307 199.835 304.165"
+	 xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:a="http://ns.adobe.com/AdobeSVGViewerExtensions/3.0/"
+	 width="20.592" height="20.592" viewBox="0 0 20.592 20.592" overflow="visible" enable-background="new 0 0 20.592 20.592"
+	 xml:space="preserve">
+	
+		<g id="Layer_1" i:layer="yes" i:dimmedPercent="50" i:rgbTrio="#4F008000FFFF">
+			<g>
+				<radialGradient id="XMLID_2_" cx="10.2964" cy="10.2959" r="9.9211" fx="10.2964" fy="10.2959" gradientUnits="userSpaceOnUse">
+					<stop  offset="0" style="stop-color:#FFFFFF"/>
+					<stop  offset="1" style="stop-color:#B33000"/>
+
+				</radialGradient>
+				<circle fill="url(#XMLID_2_)" stroke="#000000" stroke-width="0.75" cx="10.296" cy="10.297" r="9.921"/> 
+				
+					<line fill="none" stroke="#000000" stroke-width="1.5" stroke-linecap="round" x1="10.296" y1="15.965" x2="10.296" y2="19.509"/>
+				
+					<line fill="none" stroke="#000000" stroke-width="1.5" stroke-linecap="round" x1="10.296" y1="1.083" x2="10.296" y2="6.753"/>
+				
+					<polygon fill="none" stroke="#000000" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" points="
+					3.078,15.965 10.23,6.412 17.382,15.965 "/>
+				
+					<line fill="none" stroke="#000000" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" x1="1.792" y1="6.044" x2="18.8" y2="6.044"/>
+			</g>
+		</g>
+	</svg>
