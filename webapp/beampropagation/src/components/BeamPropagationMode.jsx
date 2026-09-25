@@ -766,7 +766,7 @@ function BeamPlot({ traces, events, testPoints, zTotal, measurements = [], width
               // Source SVG viewBox is 39.26 × 24.10 (landscape); rendering
               // it into the lens icon slot keeps its native aspect ratio
               // via preserveAspectRatio="xMidYMid meet".
-              <image href="/symbols/h_prismpair.svg"
+              <image href="/symbols/h-prismpair.svg"
                 x={cx - LENS_W / 2 - 6} y={iconTop}
                 width={LENS_W + 12} height={LENS_H}
                 preserveAspectRatio="xMidYMid meet" />

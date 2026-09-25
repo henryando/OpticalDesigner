@@ -46,8 +46,8 @@ export const AVAILABLE_SYMBOLS = [
   'e-pd1.svg','e-pd2.svg','e-pdgrn1.svg','e-pdgrn2.svg',
   'e-qpd.svg','e-servoleft.svg','e-servoright.svg','e-spekki.svg',
   'e-sum.svg','e-sumdiff.svg','e-wincam.svg','h-fabryperot.svg',
-  'h-fibercoupl.svg','h-iris.svg','h-lenstube.svg','h-shutter.svg',
-  'h_prismpair.svg',
+  'h-fibercoupl.svg','h-iris.svg','h-lenstube.svg','h-prismpair.svg',
+  'h-shutter.svg',
 ]
 
 // Convert any CSS color (name or hex) to a hex string for <input type="color">
