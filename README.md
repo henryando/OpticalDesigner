@@ -22,9 +22,9 @@ A browser-based tool for visualising and editing optical layouts on a 2D table d
 - **In Design toggle** — elements can be hidden from the diagram without being deleted; restored via the Elements tab
 - **Import** — upload individual CSV/JSON files or a whole project ZIP, by menu or drag-and-drop, with prompts to replace or append when the project already has data
 - **Export** — vector PDF export; individual CSV/JSON downloads; full project ZIP
-- **Projects** — multiple named projects saved in the browser, switchable at any time
+- **Projects panel** — a collapsible panel on the left lists every project, with Local Storage (everything in this browser) and Cloud Storage (optional) stacked so both are visible at once; switch, rename, duplicate, download or delete from the list, or right-click for the full set of commands
+- **Cloud projects (optional)** — click **Sign in** at the top of the Cloud Storage section to save/load that account's projects from the cloud, from any computer; a per-project sync icon shows whether it's in sync, ahead, behind, or out of sync, and moving a project between Local and Cloud storage is one click away
 - **Persistence** — layout state is saved to localStorage automatically
-- **Cloud projects (optional)** — log in with an account to save/load that account's projects from the cloud, from any computer
 
 ## Using online
 
@@ -36,18 +36,30 @@ By default there is no server-side storage: your layout lives entirely in that b
 - Clearing site data/cookies for the domain, using a different browser, or going incognito will lose unsaved work.
 - Nothing is uploaded anywhere — files never leave your machine unless you explicitly export/save them.
 
-Use **File ▾ → Download Project** (or `Cmd/Ctrl+S`) to export your layout to a `.zip` whenever you want a durable, shareable copy outside the browser.
+Use **File ▾ → Download Project** (or `Cmd/Ctrl+S`) to export your layout to a `.zip` whenever you want a durable, shareable copy outside the browser, or use the Projects panel's per-project Download — see [The Projects panel](#the-projects-panel-local--cloud-storage) below.
 
-### Cloud projects (optional)
+### The Projects panel: Local & Cloud Storage
 
-If the deployment has cloud storage configured (see [Cloud setup](#cloud-setup-optional) below), a **Log in** button appears in the header and the File ▾ menu gains a **Cloud** section:
+A dedicated panel on the **left** side of the screen — separate from the right-hand sidebar's Elements/Paths/Objects/Settings tabs — is where you create, switch between, and manage projects. Click the **«** button in its header (or the thin strip's **»** when collapsed) to hide it into the left wall of the screen and get the canvas space back; the collapsed/expanded state persists across reloads. Drag its right edge to resize it, same as the sidebar. Local Storage and Cloud Storage are stacked one above the other in the same scrolling pane, so both are visible at once — no tab switching, and each project appears in only one of the two:
 
-- **Log in to use Cloud Projects…** — opens a sign-in/sign-up form (email + password).
-- **Open Cloud Project…** — lists the projects saved to the cloud under the account you're logged in as, with when each was last saved. Click one to load it.
-- **Save to Cloud…** — saves the current layout as a *new* cloud project under this account.
-- **Save to Cloud (update)** — appears once a cloud project is open; saves changes back to it. If the same account saved it from elsewhere since you loaded it (e.g. someone else using the same shared login, or you in another tab), you'll be warned and asked to overwrite, reload the other version, or cancel — the cloud store doesn't merge concurrent edits.
+- **Local Storage** — every project in this browser that isn't linked to the cloud.
+- **Cloud Storage** (optional) — a **Sign in** button if you aren't logged in, which opens a login/sign-up window; once logged in, every project you've linked to the cloud (with a sync icon), plus any cloud project not yet pulled into this browser.
 
-Cloud projects are **private to the account that created them** — Row Level Security on the backend means one account can never see or edit another account's cloud projects, even though every account uses the same public sign-up form. This is entirely additive: local projects, localStorage persistence, and CSV/JSON/ZIP import-export all keep working exactly the same whether or not you're logged in, and a deployment without cloud storage configured simply doesn't show the Log in button or Cloud menu.
+**+ New** creates a project and switches to it right away; **Upload** loads a project `.zip` (same as **File ▾ → Upload Project…**). Click a project's name to open it; double-click (or right-click → **Rename**) to rename it in place. Right-click any project for the full menu: **Open, Rename, Duplicate, Download…, Move to Cloud…** / **Sync now** + **Move to Local…**, and **Delete…**. A **⇩** button downloads that one project as a `.zip`; **⇩ Download all** at the top of a section bundles every project shown into one `.zip`, each in its own folder.
+
+<p align="center"><img src="docs/screenshots/projects-tab.png" alt="The Projects panel" width="720" /></p>
+
+#### Cloud storage (optional)
+
+If the deployment has cloud storage configured (see [Cloud setup](#cloud-setup-optional) below), click **Sign in** at the top of the Cloud Storage section — it opens a login window with a toggle to switch to creating a new account. Once logged in:
+
+- A cloud-linked project shows a small **sync icon** next to its name: ✓ in sync, ↑ ahead of the cloud (click to push), ↓ behind the cloud (click to pull), or **!** out of sync — both sides changed (click for **Keep mine**, **Use theirs**, or **Merge…**, which combines both sides field-by-field and flags anything it can't reconcile automatically).
+- **Move to Cloud…** (right-click a Local Storage project) saves it to your account under a name you choose.
+- **Move to Local…** removes the project from the cloud — **this deletes the shared copy**, so anyone else using this login loses access to it; the project itself stays right here, in this browser. You're warned before it happens.
+- A cloud project not yet pulled into this browser (saved from another computer, or by a teammate) shows up in Cloud Storage marked "not pulled" — click it, or right-click → **Pull to Local Storage**, to bring it in. Cloud projects that only hold Beam Propagation plots and no actual layout don't show up here — there'd be nothing to pull.
+- Cloud projects are **private to the account that created them** — Row Level Security on the backend means one account can never see or edit another account's cloud projects, even though every account uses the same public sign-up form.
+
+This is entirely additive: Local Storage, localStorage persistence, and CSV/JSON/ZIP import-export all keep working exactly the same whether or not you're logged in, and a deployment without cloud storage configured simply shows a note in place of the **Sign in** button.
 
 **To give a whole lab/team access to the same set of cloud projects**, don't create individual accounts — create one account and share those login credentials with everyone who should have access. Anyone with the credentials sees and edits that one account's project list; nobody else (including a stranger who signs up their own separate account on the public form) can see it. This also means you don't strictly need to disable public sign-up for data-privacy reasons — an uninvited signup just gets their own empty, useless project list — though you may still want to disable it under Supabase's Authentication → Settings to keep the user table tidy.
 
@@ -148,8 +160,10 @@ Each field is seeded with the value from the first selected element and starts u
 
 - **Objects** — background-object groups (chamber walls, mounts, etc.), same add/rename/delete/edit-edges pattern as Paths, plus a stroke-width control per group. Below that, a **Background Images** section for placing reference photos or diagram screenshots as a semi-transparent layer under the design: click **+** to upload, drag on the canvas to move, and use the X/Y/W/α/θ inputs to set exact position, width (in inches, height auto-preserves aspect), opacity, and rotation (degrees, clockwise); Flip ↔ / Flip ↕ buttons mirror the image without changing its rotation. Images ride along in project ZIP saves.
 
+Project management (creating, switching, renaming, duplicating, downloading, and optional cloud sync) lives in the separate **Projects panel** on the left, not in this sidebar — see [The Projects panel](#the-projects-panel-local--cloud-storage) above.
+
 <p align="center"><img src="docs/screenshots/background-image.gif" alt="Placing a reference background image" width="720" /></p>
-- **Settings** — dark mode, UI font size, canvas scale, table size/origin, grid display (grid lines, table bounding box, coordinate axis labels, line width), beam-path overlap offset, beam direction arrows, move-snap spacing, element label toggles (O-number, type, annotation), **Send labels to border** (moves every element's label out to the nearest map border with a leader arrow pointing back to the element — drag a label to slide it along the border, and it right-aligns on the left border, left-aligns on the right, centres on the top/bottom; positions are stored per element as `labelPos` and persist with the project), PDF export font size and label Y offset (nudges labels closer to icons at export time if the smaller PDF font makes them feel too far), and the Optics Styles symbol library editor (add/rename/delete symbol mappings, upload custom SVGs, per-style label clearance for icons whose label would otherwise overlap the drawing).
+- **Settings** — UI font size, canvas scale, table size/origin, grid display (grid lines, table bounding box, coordinate axis labels, line width), beam-path overlap offset, beam direction arrows, move-snap spacing, element label toggles (O-number, type, annotation), **Send labels to border** (moves every element's label out to the nearest map border with a leader arrow pointing back to the element — drag a label to slide it along the border, and it right-aligns on the left border, left-aligns on the right, centres on the top/bottom; positions are stored per element as `labelPos` and persist with the project), PDF export font size and label Y offset (nudges labels closer to icons at export time if the smaller PDF font makes them feel too far), and the Optics Styles symbol library editor (add/rename/delete symbol mappings, upload custom SVGs, per-style label clearance for icons whose label would otherwise overlap the drawing).
 
 Drag the divider between the canvas and the sidebar to resize the sidebar.
 
@@ -169,27 +183,22 @@ Drag the divider between the canvas and the sidebar to resize the sidebar.
 
 ### Uploading and downloading files
 
-**File ▾** has three sections:
+**File ▾** has two sections:
 
-- **Upload** — `Upload Elements…` / `Upload Paths…` / `Upload Objects…` / `Upload Settings…` / `Upload Propagations…` load individual CSV/JSON files; `Upload Project…` loads a full `.zip` bundle (all files plus embedded custom symbols).
-- **Download** — the matching per-file downloads, plus `Download Project` (also bound to `Cmd/Ctrl+S`) which exports everything as a `.zip`. `propagations.csv` is included in the ZIP whenever any beam-propagation plots exist.
-- **Projects** — `New Project…` clears the workspace; `Switch Project…` lists and loads named project slots saved in the browser (localStorage); `Rename Project…` renames the current slot in place; `Save Project As…` duplicates the current files into a new, separately-named slot and switches to it, leaving the original slot untouched.
+- **Upload** — `Upload Elements…` / `Upload Paths…` / `Upload Objects…` / `Upload Settings…` load individual CSV/JSON files; `Upload Project…` loads a full `.zip` bundle (all files plus embedded custom symbols).
+- **Download** — the matching per-file downloads, plus `Download Project` (also bound to `Cmd/Ctrl+S`) which exports everything as a `.zip`.
+
+Creating, switching, renaming, duplicating and deleting projects, and (optionally) syncing them to the cloud, all live in the **Projects panel** on the left now — see [The Projects panel](#the-projects-panel-local--cloud-storage) above.
 
 **Export PDF**, a button in the header rather than a menu item, renders the current layout to a vector PDF. The suggested filename defaults to the current project name.
+
+**☾ Dark** / **☀ Light** in the header switches the whole app's theme.
 
 <p align="center"><img src="docs/screenshots/pdf-export.png" alt="A PDF exported from the app" width="720" /></p>
 
 ### Beam Propagation
 
-**Beam Propagation** in the header opens a separate mode: a Gaussian-beam sandbox that computes w(z) through a sequence of thin lenses and free-space steps. Every plot lives in its own propagation, listed in the left rail and stored in `propagations.csv` alongside the designer files. From here you can set the wavelength, specify the initial beam either as **local radius + divergence at z = 0** or as **waist size + waist z position** (toggle in the *Initial beam at z = 0* section), or open **Fit from measurements…** to enter a table of profiled beam widths at several z positions — the ideal-Gaussian propagation formula w(z)² = w₀²·(1 + ((z − z₀)/z_R)²) is fit to give w₀, z₀, and z_R, and those are applied to the initial beam (paste 2-column `z, w` or 3-column `z, wₓ, w_y` data directly from Excel/CSV). Add lenses (spherical, cyl-x, or cyl-y) or **prism pairs** (anamorphic beam expander along X or Y with a magnification factor M — applies q → M²·q on that axis) at any z, mark test points, and drag icons horizontally to change z; drag lens icons vertically to change f, or prism icons vertically to change M. Each optic has an **On** toggle in the optics table — untick it to skip the optic in the propagation without deleting it (its icon and parameters row stay visible but dimmed). Split x/y renders two axes independently, either stacked or overlaid.
-
-<p align="center"><img src="docs/screenshots/propagation-sandbox.gif" alt="Setting up a beam propagation" width="720" /></p>
-
-> Beam Propagation is also available as a standalone app at [beampropagation.netlify.app](https://beampropagation.netlify.app) (source in [webapp/beampropagation](webapp/beampropagation)). Upload a project `.zip` from **File ▾ → Download Project** to use **Import…** there; plots use the same `propagations.csv` format, so they move freely between the two. It also shares the designer's cloud projects and login when cloud storage is configured (see its [README](webapp/beampropagation/README.md#cloud-projects-optional)). A step-by-step [User Guide](webapp/beampropagation/USER_GUIDE.md) for the standalone app is available.
-
-**Import from a designer beam path** brings a whole path in with real inter-element distances (× 25.4 mm/in) and pre-fills each lens's focal length from the element's `f_mm` / `Focal Length` column / `Annotation` (`f = 100 mm` and variants understood). Non-lens elements come in as pass-throughs. The **Reimport** button on an imported propagation refreshes distances and focal lengths from the current designer state while keeping the same path and any user-added optics.
-
-<p align="center"><img src="docs/screenshots/propagation-import.gif" alt="Importing a beam path into propagation" width="720" /></p>
+Gaussian-beam propagation isn't part of the designer itself — use the standalone app at [beampropagation.netlify.app](https://beampropagation.netlify.app) (source in [webapp/beampropagation](webapp/beampropagation)). It imports a beam path straight from a designer project `.zip` (**File ▾ → Download Project** here, then **Upload from project .zip** there) with real inter-element distances and lens focal lengths pre-filled, and shares the designer's cloud projects and login when cloud storage is configured (see its [README](webapp/beampropagation/README.md#cloud-storage-optional)). A step-by-step [User Guide](webapp/beampropagation/USER_GUIDE.md) covers it in full.
 
 #### Merging uploads into an existing project
 
@@ -308,7 +317,7 @@ Runs ESLint over the `src/` tree.
 
 ## Cloud setup (optional)
 
-Cloud projects (per-account save/load, see [Cloud projects](#cloud-projects-optional) above) run on [Supabase](https://supabase.com) — a hosted Postgres database, auth, and file storage. The frontend talks to it directly from the browser; no server code is needed, so the app stays a static Netlify deploy either way.
+Cloud projects (per-account save/load, see [Cloud storage](#cloud-storage-optional) above) run on [Supabase](https://supabase.com) — a hosted Postgres database, auth, and file storage. The frontend talks to it directly from the browser; no server code is needed, so the app stays a static Netlify deploy either way.
 
 1. Create a Supabase project and note its **Project URL** and **anon public key** (Project Settings → API). The anon key is meant to be exposed client-side — access control comes from the Row Level Security policies below, not from keeping the key secret.
 
@@ -375,7 +384,7 @@ Cloud projects (per-account save/load, see [Cloud projects](#cloud-projects-opti
      for delete to authenticated using (bucket_id = 'project-images' and owner = auth.uid());
    ```
 
-   Each account can only read and write its own rows and images — see [Cloud projects](#cloud-projects-optional) above for how a team shares one pool of projects anyway (share one account's login).
+   Each account can only read and write its own rows and images — see [Cloud storage](#cloud-storage-optional) above for how a team shares one pool of projects anyway (share one account's login).
 3. Under Authentication → Providers, confirm Email is enabled (it is by default). Optionally, under Authentication → Settings, disable "Confirm email" so people can sign up without a confirmation round-trip, and/or disable "Allow new users to sign up" entirely once you've created whatever account(s) you need — neither is required for data privacy (see above), just tidiness.
 4. Copy `webapp/frontend/.env.example` to `webapp/frontend/.env.local` and fill in `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` for local dev.
 5. For the deployed site, add the same two variables in Netlify under Site configuration → Environment variables, then trigger a redeploy (env vars only take effect on the next build, not retroactively).
@@ -387,6 +396,8 @@ The app is deployed via Netlify from this repository. Any push to `main` trigger
 ## Example files
 
 The [`webapp/example_files/`](webapp/example_files/) directory contains a sample layout that can be loaded from the **File ▾ → Upload** menu, or by dragging the files onto the app.
+
+`settings.json` from that folder also doubles as the app's **new-project defaults** — table size, appearance settings, and the optics-style symbol mappings that every brand-new project (and a fresh install with no saved state) starts with. Edit that file to change what "blank" means for this deployment.
 
 ## Credits and license
 

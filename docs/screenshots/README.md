@@ -28,8 +28,7 @@ This folder holds the images referenced from the main [README](../../README.md).
 | `beam-path-edit.gif`        | Entering beam-path edit mode, clicking source → dest to add edges.      |
 | `background-image.gif`      | Uploading a reference image, dragging, resizing via the corner handle.  |
 | `transform-menu.gif`        | Opening Transform ▾, applying Rotate 90° right.                         |
-| `propagation-sandbox.gif`   | Beam Propagation mode: setting λ, w₀, adding a lens, seeing the plot.   |
-| `propagation-import.gif`    | Import from beam path: pick start/end, watch it come in with distances. |
+| `projects-tab.png`          | The Projects panel (left side, expanded): Local Storage and Cloud Storage stacked, a cloud-linked project's sync icon, and the right-click menu. |
 | `pdf-export.png`            | An exported PDF opened alongside the app for comparison.                |
 
 Feel free to add more; just remember to reference them from the main README.
