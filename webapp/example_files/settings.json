@@ -18,8 +18,8 @@
     "showBoundingBox": true
   },
   "config": {
-    "table_length": 21,
-    "table_width": 34,
+    "table_length": 50,
+    "table_width": 30,
     "origin_x": 0,
     "origin_y": 0
   },
