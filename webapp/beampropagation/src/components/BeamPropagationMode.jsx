@@ -14,6 +14,7 @@ import {
 } from '../utils/gaussian'
 import { normalizePropagation, widthModeInfo, DEFAULT_W0_MM } from '../utils/propagationModel'
 import ElementShape from './ElementShape'
+import ProjectsRail from './ProjectsRail'
 import './BeamPropagationMode.css'
 
 const INCH_MM = 25.4
@@ -55,6 +56,8 @@ function makeDefaultPropagation(name = 'New propagation') {
     name,
     splitXY: false,
     combinedXY: true,        // when splitXY: overlay x + y on one plot vs stack two.
+    showGrid: false,
+    showReferenceBeam: false,
     hidePassthroughOnPlot: false,
     hidePassthroughInTable: false,
     plotWidth: 720,
@@ -510,7 +513,7 @@ function tickLabel(v, step) {
   return v.toFixed(3)
 }
 
-function BeamPlot({ traces, events, testPoints, zTotal, measurements = [], width = 720, height = 240, title, widthMode = 'radius', onDragOptic, onResize }) {
+function BeamPlot({ traces, referenceTraces = [], events, testPoints, zTotal, measurements = [], width = 720, height = 240, title, widthMode = 'radius', showGrid = false, onDragOptic, onResize }) {
   const W = Math.max(360, width), H = Math.max(160, height)
   // Traces and measurements arrive as radii in mm; scale to what is displayed.
   const { scale: wScale, symbol: wSym, name: wName } = widthModeInfo(widthMode)
@@ -615,6 +618,7 @@ function BeamPlot({ traces, events, testPoints, zTotal, measurements = [], width
   const dataMax = Math.max(
     0.01,
     ...traces.flatMap(t => t.points.map(p => p.w_mm * wScale).filter(Number.isFinite)),
+    ...referenceTraces.flatMap(t => t.points.map(p => p.w_mm * wScale).filter(Number.isFinite)),
     ...measurements.flatMap(m => (m.points ?? []).map(p => p.w_mm * wScale).filter(Number.isFinite)),
   )
   const maxW = dataMax * 1.08
@@ -643,6 +647,30 @@ function BeamPlot({ traces, events, testPoints, zTotal, measurements = [], width
           ))}
         </g>
       )}
+      {referenceTraces.length > 0 && (
+        <g transform={`translate(${W - PAD_R - 118}, ${traces.length > 1 ? 28 : 14})`}>
+          <line x1={0} y1={-4} x2={16} y2={-4} stroke="var(--text-muted)" strokeWidth={2} strokeDasharray="5 4" />
+          <text x={22} y={0} fontSize={11} fill="var(--text-muted)">no optics</text>
+        </g>
+      )}
+
+      {/* Gridlines — drawn first so everything else sits on top. Snap to the
+          same "nice" tick values as the axis labels. */}
+      {showGrid && (() => {
+        const yTicks = niceTicks(maxW), xTicks = niceTicks(zTotal)
+        return (
+          <g className="prop-plot-grid">
+            {yTicks.map(w => (
+              <line key={`gy${w}`} x1={PAD_L} y1={yOf(w)} x2={PAD_L + plotW} y2={yOf(w)}
+                stroke="var(--text-muted)" strokeWidth={1} opacity={0.18} />
+            ))}
+            {xTicks.map(z => (
+              <line key={`gx${z}`} x1={xOf(z)} y1={PAD_T} x2={xOf(z)} y2={PAD_T + plotH}
+                stroke="var(--text-muted)" strokeWidth={1} opacity={0.18} />
+            ))}
+          </g>
+        )
+      })()}
 
       {/* axis lines */}
       <line x1={PAD_L} y1={PAD_T + plotH} x2={PAD_L + plotW} y2={PAD_T + plotH} stroke="var(--text-muted)" />
@@ -812,6 +840,14 @@ function BeamPlot({ traces, events, testPoints, zTotal, measurements = [], width
           </g>
         )
       })}
+      {/* Reference trace: the initial beam propagated through free space only,
+          as if no optics were in the way — dashed, drawn under the real
+          trace(s) so the two are easy to compare. */}
+      {referenceTraces.map((t, i) => (
+        <path key={`ref${i}`} d={linePathOf(t.points)}
+          fill="none" stroke={t.color} strokeWidth={1.4} strokeDasharray="5 4"
+          strokeLinejoin="round" strokeLinecap="round" opacity={0.7} pointerEvents="none" />
+      ))}
       {/* Beam radius traces (drawn last so they sit above dashed lines) */}
       {traces.map((t, i) => (
         <path key={`tr${i}`} d={linePathOf(t.points)}
@@ -975,9 +1011,11 @@ function WaistFitModal({ propagation, onClose, onApply }) {
   }
 
   // The dialog claims file drags for itself: without stopPropagation a dropped
-  // CSV would bubble up to the app-wide handler and be read as a
-  // propagations.csv. The backdrop covers the whole page, so a file dropped
-  // anywhere while the dialog is open lands here.
+  // CSV would bubble up to the app-wide handler, which doesn't know what to
+  // do with a .csv (propagations are .json now) and would just show an
+  // "unsupported file" error instead of reaching this dialog. The backdrop
+  // covers the whole page, so a file dropped anywhere while the dialog is
+  // open lands here.
   const hasFiles = e => Array.from(e.dataTransfer?.types ?? []).includes('Files')
   function onDragEnter(e) {
     e.stopPropagation()
@@ -1256,13 +1294,12 @@ function WaistFitModal({ propagation, onClose, onApply }) {
 const BeamPropagationMode = forwardRef(function BeamPropagationMode({
   propagations: propagationsRaw, activePropagation,
   onSetPropagations, onSetActivePropagation,
-  beamPaths, elements, symbolDefs, projectName, onLoadProjectZip,
+  beamPaths, elements, symbolDefs, onLoadProjectZip,
+  onUploadPropagationsClick,
 }, ref) {
   const [importOpen, setImportOpen] = useState(false)
   const projectZipInputRef = useRef(null)
   const [fitModalOpen, setFitModalOpen] = useState(false)
-  const [renamingId, setRenamingId] = useState(null)
-  const [renameVal, setRenameVal]   = useState('')
   const [showPassthroughOptics, setShowPassthroughOptics] = useState(false)
 
   // Normalise any legacy µm-based propagations to mm on read.
@@ -1275,7 +1312,6 @@ const BeamPropagationMode = forwardRef(function BeamPropagationMode({
   }, [propagationsRaw])
 
   const ids = Object.keys(propagations)
-  const hasBeamPaths = Object.keys(beamPaths ?? {}).length > 0
   const activeId = activePropagation && propagations[activePropagation] ? activePropagation : (ids[0] ?? null)
   const p = activeId ? propagations[activeId] : null
   // Display units for beam size: stored radii × scale. Divergence is scaled the
@@ -1390,11 +1426,6 @@ const BeamPropagationMode = forwardRef(function BeamPropagationMode({
     const np = makeDefaultPropagation(`Propagation ${ids.length + 1}`)
     commitPropsDiscrete({ ...propagations, [np.id]: np })
     setActive(np.id)
-  }
-  function deletePropagation(id) {
-    const { [id]: _drop, ...rest } = propagations
-    commitPropsDiscrete(rest)
-    if (activeId === id) setActive(Object.keys(rest)[0] ?? null)
   }
 
   // ── Upload a designer project .zip just to import a beam path from it ─────
@@ -1562,6 +1593,13 @@ const BeamPropagationMode = forwardRef(function BeamPropagationMode({
 
     const trace = sampleWofZ2D(steps, qx0, qy0, lambda_mm)
 
+    // Reference trace: the same initial beam propagated through pure free
+    // space over the same total distance, as if no optics were in the way —
+    // for comparing what the optics actually did against doing nothing.
+    const referenceTrace = p.showReferenceBeam
+      ? sampleWofZ2D([{ kind: 'space', L: p.distance_mm }], qx0, qy0, lambda_mm)
+      : null
+
     // Build unified event list for the plot: every optic gets a marker at
     // its z (including disabled ones — those render dimmed). Passthroughs
     // are filtered out when the propagation's Hide pass-through on plot
@@ -1628,7 +1666,7 @@ const BeamPropagationMode = forwardRef(function BeamPropagationMode({
       if (Number.isFinite(wx) && wx > 0) measX.push({ z_mm: z, w_mm: wx * measFactor })
       if (Number.isFinite(wy) && wy > 0) measY.push({ z_mm: z, w_mm: wy * measFactor })
     }
-    return { trace: { ...trace, events }, rows, optics, testPoints, measurements: { x: measX, y: measY } }
+    return { trace: { ...trace, events }, referenceTrace, rows, optics, testPoints, measurements: { x: measX, y: measY } }
   }, [p])
 
   // ── PDF export ────────────────────────────────────────────────────────────
@@ -1819,54 +1857,18 @@ const BeamPropagationMode = forwardRef(function BeamPropagationMode({
     <div className="prop-mode">
       <input ref={projectZipInputRef} type="file" accept=".zip" style={{ display: 'none' }}
         onChange={e => { uploadProjectForImport(e.target.files[0]); e.target.value = '' }} />
-      {/* ── Left rail: propagations list ── */}
-      <aside className="prop-rail">
-        <div className="prop-rail-head">
-          <span style={{ fontSize: 12, fontWeight: 600 }}>Propagations</span>
-          <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{ids.length} plot{ids.length === 1 ? '' : 's'}</span>
-        </div>
-        <div className="prop-rail-actions">
-          <button className="small-btn" style={{ flex: 1 }} onClick={newPropagation}>+ New</button>
-          <button className="small-btn"
-            onClick={() => hasBeamPaths ? setImportOpen(true) : projectZipInputRef.current.click()}
-            title={hasBeamPaths
-              ? `Create a propagation from a beam path in ${projectName || 'the loaded project'}`
-              : 'Choose a designer project .zip, then pick a beam path to import'}>Import…</button>
-        </div>
-        <ul className="prop-rail-list">
-          {ids.map(id => {
-            const item = propagations[id]
-            const active = id === activeId
-            return (
-              <li key={id} className={`prop-rail-item ${active ? 'active' : ''}`}>
-                {renamingId === id ? (
-                  <input className="snap-input" style={{ flex: 1 }} value={renameVal}
-                    autoFocus onChange={e => setRenameVal(e.target.value)}
-                    onBlur={() => { commitPropsDiscrete({ ...propagations, [id]: { ...propagations[id], name: renameVal.trim() || propagations[id].name } }); setRenamingId(null) }}
-                    onKeyDown={e => { if (e.key === 'Enter') e.target.blur(); if (e.key === 'Escape') setRenamingId(null) }} />
-                ) : (
-                  <button className="prop-rail-name"
-                    onClick={() => setActive(id)}
-                    onDoubleClick={() => { setRenamingId(id); setRenameVal(item.name) }}
-                    title="Click to open · double-click to rename">{item.name}</button>
-                )}
-                <button className="small-btn" title="Rename"
-                  onClick={() => { setRenamingId(id); setRenameVal(item.name) }}>✎</button>
-                <button className="small-btn" title="Delete"
-                  onClick={() => deletePropagation(id)}>✕</button>
-              </li>
-            )
-          })}
-          {ids.length === 0 && (
-            <li className="prop-rail-empty">No propagations yet — click <b>+ New</b>, or use <b>Import…</b> to start from a beam path in a designer project .zip.</li>
-          )}
-        </ul>
-      </aside>
+      {/* ── Left rail: propagations list, split into Local / Cloud storage ── */}
+      <ProjectsRail
+        propagations={propagations} activeId={activeId} setActive={setActive}
+        commitPropsDiscrete={commitPropsDiscrete}
+        onNewPropagation={newPropagation}
+        onUploadPropagationsClick={onUploadPropagationsClick}
+      />
 
       {/* ── Main pane ── */}
       <main className="prop-main">
         {!p ? (
-          <p className="empty">Create a new propagation, or use <b>Import…</b> to start from a beam path in a designer project .zip.</p>
+          <p className="empty">Create a new propagation, then use <b>Upload from project .zip</b> in the Optics and test points section to start from a beam path.</p>
         ) : (
           <>
             {/* Header */}
@@ -2127,16 +2129,18 @@ const BeamPropagationMode = forwardRef(function BeamPropagationMode({
                   <>
                     <BeamPlot title="x axis"
                       traces={[{ points: compute.trace.traceX, color: '#61afef', label: 'x' }]}
+                      referenceTraces={compute.referenceTrace ? [{ points: compute.referenceTrace.traceX, color: '#61afef' }] : []}
                       events={compute.trace.events}
-                      testPoints={compute.testPoints} zTotal={compute.trace.zTotal} widthMode={p.widthMode}
+                      testPoints={compute.testPoints} zTotal={compute.trace.zTotal} widthMode={p.widthMode} showGrid={p.showGrid}
                       measurements={[{ points: compute.measurements.x, color: '#61afef', label: 'x meas' }]}
                       width={p.plotWidth} height={p.plotHeight}
                       onResize={(w, h) => mutate({ plotWidth: w, plotHeight: h })}
                       onDragOptic={(id, patch) => mutateOpticById(id, patch)} />
                     <BeamPlot title="y axis"
                       traces={[{ points: compute.trace.traceY, color: '#e06c75', label: 'y' }]}
+                      referenceTraces={compute.referenceTrace ? [{ points: compute.referenceTrace.traceY, color: '#e06c75' }] : []}
                       events={compute.trace.events}
-                      testPoints={compute.testPoints} zTotal={compute.trace.zTotal} widthMode={p.widthMode}
+                      testPoints={compute.testPoints} zTotal={compute.trace.zTotal} widthMode={p.widthMode} showGrid={p.showGrid}
                       measurements={[{ points: compute.measurements.y, color: '#e06c75', label: 'y meas' }]}
                       width={p.plotWidth} height={p.plotHeight}
                       onResize={(w, h) => mutate({ plotWidth: w, plotHeight: h })}
@@ -2148,8 +2152,12 @@ const BeamPropagationMode = forwardRef(function BeamPropagationMode({
                       { points: compute.trace.traceX, color: '#61afef', label: 'x' },
                       { points: compute.trace.traceY, color: '#e06c75', label: 'y' },
                     ]}
+                    referenceTraces={compute.referenceTrace ? [
+                      { points: compute.referenceTrace.traceX, color: '#61afef' },
+                      { points: compute.referenceTrace.traceY, color: '#e06c75' },
+                    ] : []}
                     events={compute.trace.events}
-                    testPoints={compute.testPoints} zTotal={compute.trace.zTotal} widthMode={p.widthMode}
+                    testPoints={compute.testPoints} zTotal={compute.trace.zTotal} widthMode={p.widthMode} showGrid={p.showGrid}
                     measurements={[
                       { points: compute.measurements.x, color: '#61afef', label: 'x meas' },
                       { points: compute.measurements.y, color: '#e06c75', label: 'y meas', marker: 'square' },
@@ -2158,16 +2166,22 @@ const BeamPropagationMode = forwardRef(function BeamPropagationMode({
                 ) : (
                   <BeamPlot
                     traces={[{ points: compute.trace.traceX, color: '#61afef', label: 'w' }]}
+                    referenceTraces={compute.referenceTrace ? [{ points: compute.referenceTrace.traceX, color: '#61afef' }] : []}
                     events={compute.trace.events}
-                    testPoints={compute.testPoints} zTotal={compute.trace.zTotal} widthMode={p.widthMode}
+                    testPoints={compute.testPoints} zTotal={compute.trace.zTotal} widthMode={p.widthMode} showGrid={p.showGrid}
                     measurements={[{ points: compute.measurements.x, color: '#61afef', label: 'meas' }]}
                     onDragOptic={(id, patch) => mutateOpticById(id, patch)} />
                 )}
               </div>
             )}
 
-            {/* Pass-through visibility — sits between the plot and the table it affects */}
+            {/* Plot display options — sit between the plot and the table below it */}
             <div className="prop-actions" style={{ gap: 14 }}>
+              <label className="prop-field"><input type="checkbox" checked={p.showGrid ?? false}
+                onChange={e => mutate({ showGrid: e.target.checked })} /> Show gridlines</label>
+              <label className="prop-field" title="Dashed reference line: the initial beam propagated through free space only, as if none of the optics above were in the way">
+                <input type="checkbox" checked={p.showReferenceBeam ?? false}
+                onChange={e => mutate({ showReferenceBeam: e.target.checked })} /> Show reference beam (no optics)</label>
               <label className="prop-field"><input type="checkbox" checked={p.hidePassthroughOnPlot ?? false}
                 onChange={e => mutate({ hidePassthroughOnPlot: e.target.checked })} /> Hide pass-through on plot</label>
               <label className="prop-field"><input type="checkbox" checked={p.hidePassthroughInTable ?? false}

@@ -27,16 +27,21 @@ const propagationFields = (propagations, activePropagation) => ({
   activePropagation: activePropagation ?? null,
 })
 
-// Small columns only — never `state` — so listing stays cheap however large
-// individual projects get.
+// Small columns only — never the whole `state` — so listing stays cheap
+// however large individual projects get. `propagations` is the one part of
+// `state` worth the extra bytes: this app only cares about rows that
+// actually have some (a designer project nobody has ever added a
+// propagation to has nothing for this app to pull, and shouldn't clutter
+// its Cloud Storage as if it did).
 export async function listCloudProjects() {
   const { data, error } = await supabase
     .from(TABLE)
-    .select('id, name, updated_at, updated_by_email')
+    .select('id, name, updated_at, updated_by_email, propagations:state->propagations')
     .order('updated_at', { ascending: false })
   if (error) throw error
   return data.map(row => ({
     id: row.id, name: row.name, updatedAt: row.updated_at, updatedByEmail: row.updated_by_email,
+    hasPropagations: Object.keys(row.propagations ?? {}).length > 0,
   }))
 }
 

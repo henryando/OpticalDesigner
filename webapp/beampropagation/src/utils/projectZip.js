@@ -1,11 +1,11 @@
 // Reads an Optical Table Designer project .zip (File ▸ Download Project) and
 // pulls out what beam propagation needs: the elements, beam paths and symbol
-// definitions used by "Import…", plus any propagations.csv bundled with it.
+// definitions used by "Import…", plus any propagations.json bundled with it.
 import JSZip from 'jszip'
 import { DEFAULT_SYMBOL_DEFS } from './symbols'
 import { parseElementsCsv, parseBeamPathsCsv } from './csvUtils'
-import { visibleElements } from './projectContext'
-import { parsePropagationsCsv } from './propagationCsv'
+import { visibleElements, beamPathsThroughVisibleElements } from './projectContext'
+import { parsePropagationsJson } from './propagationsJson'
 
 export async function readProjectZip(file) {
   const zip = await JSZip.loadAsync(file)
@@ -29,10 +29,10 @@ export async function readProjectZip(file) {
     readText('settings.json'),
     readText('elements.csv'),
     readText('beam_paths.csv'),
-    readText('propagations.csv'),
+    readText('propagations.json'),
   ])
   if (!elemText && !pathsText && !propText) {
-    throw new Error('No elements.csv, beam_paths.csv or propagations.csv found — is this an Optical Table Designer project .zip?')
+    throw new Error('No elements.csv, beam_paths.csv or propagations.json found — is this an Optical Table Designer project .zip?')
   }
 
   let symbolDefs = { ...DEFAULT_SYMBOL_DEFS }
@@ -50,8 +50,9 @@ export async function readProjectZip(file) {
 
   const parsed = elemText ? parseElementsCsv(elemText).elements : []
   const elements = visibleElements(parsed, null, layers)
-  const beamPaths = pathsText ? parseBeamPathsCsv(pathsText).beamPaths : {}
-  const propagations = propText ? parsePropagationsCsv(propText) : {}
+  const rawBeamPaths = pathsText ? parseBeamPathsCsv(pathsText).beamPaths : {}
+  const beamPaths = beamPathsThroughVisibleElements(rawBeamPaths, elements)
+  const propagations = propText ? parsePropagationsJson(propText) : {}
 
   return { elements, beamPaths, symbolDefs, propagations }
 }

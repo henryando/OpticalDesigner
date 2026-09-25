@@ -1,10 +1,12 @@
 // Shape of a propagation as used in memory by this app, and the conversion to
-// and from the shape stored in propagations.csv / cloud projects.
+// and from the shape stored in propagations.json / cloud projects.
 //
 // In memory, test points are optics with kind 'test' so the UI has a single
 // table. The Optical Table Designer's copy of this mode keeps them in a
 // separate `testPoints` array, so files and cloud rows written from here split
 // them back out (toFileShape) — that way plots move freely between the two.
+
+import { stableStringify } from './stableStringify'
 
 export const DEFAULT_W0_MM = 0.25
 
@@ -29,6 +31,8 @@ export function normalizePropagation(p) {
   if (out.w0y_mm == null) out.w0y_mm = out.w0x_mm
   if (out.splitXY == null) out.splitXY = false
   if (out.combinedXY == null) out.combinedXY = true
+  if (out.showGrid == null) out.showGrid = false
+  if (out.showReferenceBeam == null) out.showReferenceBeam = false
   if (out.hidePassthroughOnPlot == null) out.hidePassthroughOnPlot = false
   if (out.hidePassthroughInTable == null) out.hidePassthroughInTable = false
   if (out.plotWidth == null)  out.plotWidth = 720
@@ -48,11 +52,14 @@ export function normalizePropagation(p) {
   return out
 }
 
-// In-memory propagation → the shape written to files and cloud rows.
+// In-memory propagation → the shape written to files and cloud rows. Strips
+// `cloud` — this browser's private bookkeeping of which cloud project it's
+// synced to, and with what fingerprint — which must never leak into a shared
+// row or a file another machine might load.
 export function toFileShape(p) {
   const n = normalizePropagation(p)
   const isTest = o => o.kind === 'test'
-  return {
+  const out = {
     ...n,
     optics: n.optics.filter(o => !isTest(o)),
     testPoints: n.optics.filter(isTest).map(o => ({
@@ -60,6 +67,20 @@ export function toFileShape(p) {
       ...(o.enabled === false ? { enabled: false } : {}),
     })),
   }
+  delete out.cloud
+  return out
+}
+
+// A stable string fingerprint of a propagation's shareable content, used to
+// tell whether it has changed since it was last synced to (or pulled from) a
+// cloud project. Two propagations that would write the same file are equal.
+// Uses a key-order-independent stringify: a freshly built propagation has
+// whatever key order its literal used, but the same content fetched back
+// from Postgres's `jsonb` column isn't guaranteed to preserve that order —
+// plain JSON.stringify would then see the two as "different" with zero
+// real edits.
+export function fingerprintPropagation(p) {
+  return stableStringify(toFileShape(p))
 }
 
 export function propagationsToFileShape(propagations) {

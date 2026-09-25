@@ -1,22 +1,12 @@
 import { useState, useEffect, useRef } from 'react'
 import BeamPropagationMode from './components/BeamPropagationMode'
-import AuthPanel from './components/AuthPanel'
-import CloudProjectsModal from './components/CloudProjectsModal'
 import { readProjectZip } from './utils/projectZip'
-import { visibleElements } from './utils/projectContext'
-import { parsePropagationsCsv, serializePropagationsCsv } from './utils/propagationCsv'
-import { propagationsFromFileShape } from './utils/propagationModel'
-import { DEFAULT_SYMBOL_DEFS } from './utils/symbols'
-import { supabase } from './supabaseClient'
-import {
-  fetchCloudProject, insertCloudProject, updateCloudProjectPropagations,
-} from './utils/cloudProjects'
+import { parsePropagationsJson, serializePropagationsJson } from './utils/propagationsJson'
 import './App.css'
 
 const LS_PROPS   = 'beamProp_v1'
 const LS_PROJECT = 'beamProp_project_v1'
 const LS_THEME   = 'beamProp_theme'
-const LS_CLOUD   = 'beamProp_current_cloud_project'
 
 function loadJson(key) {
   try {
@@ -48,26 +38,8 @@ export default function App() {
   // { fileName, propagations } until the user picks replace / add / cancel.
   const [pendingProps, setPendingProps] = useState(null)
 
-  // ── Cloud projects — optional, only active when Supabase is configured ────
-  const [session,                setSession]                = useState(null)
-  const [authModalOpen,          setAuthModalOpen]          = useState(false)
-  const [cloudProjectsModalOpen, setCloudProjectsModalOpen] = useState(false)
-  const [cloudMenuOpen,          setCloudMenuOpen]          = useState(false)
-  // {id, name, updatedAt} of the cloud project last opened / saved to. Kept in
-  // localStorage so "Save to Cloud (update)" survives a reload.
-  const [currentCloudProject, setCurrentCloudProject] = useState(() => loadJson(LS_CLOUD))
-  const [cloudBusy,           setCloudBusy]           = useState(false)
-  const [saveToCloudPromptOpen, setSaveToCloudPromptOpen] = useState(false)
-  const [saveToCloudName,       setSaveToCloudName]       = useState('')
-  // Someone saved the open cloud project since it was loaded: {updatedByEmail, updatedAt}.
-  const [cloudConflict, setCloudConflict] = useState(null)
-  // Generic "are you sure": {title, text, confirmLabel, onConfirm}.
-  const [confirm, setConfirm] = useState(null)
-
   const propagationModeRef = useRef(null)
-  const zipInputRef = useRef(null)
-  const csvInputRef = useRef(null)
-  const cloudMenuRef = useRef(null)
+  const jsonInputRef = useRef(null)
   const dragDepth = useRef(0)
 
   useEffect(() => { document.documentElement.dataset.theme = theme }, [theme])
@@ -85,30 +57,6 @@ export default function App() {
       else localStorage.removeItem(LS_PROJECT)
     } catch {}
   }, [project])
-  useEffect(() => {
-    try {
-      if (currentCloudProject) localStorage.setItem(LS_CLOUD, JSON.stringify(currentCloudProject))
-      else localStorage.removeItem(LS_CLOUD)
-    } catch {}
-  }, [currentCloudProject])
-
-  // Track the logged-in Supabase user, if any. A no-op when Supabase isn't
-  // configured (`supabase` is null) — every cloud control is then hidden.
-  useEffect(() => {
-    if (!supabase) return
-    supabase.auth.getSession().then(({ data }) => setSession(data.session))
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, sess) => setSession(sess))
-    return () => sub.subscription.unsubscribe()
-  }, [])
-
-  useEffect(() => {
-    if (!cloudMenuOpen) return
-    function onDown(e) {
-      if (cloudMenuRef.current && !cloudMenuRef.current.contains(e.target)) setCloudMenuOpen(false)
-    }
-    document.addEventListener('mousedown', onDown)
-    return () => document.removeEventListener('mousedown', onDown)
-  }, [cloudMenuOpen])
 
   function replacePropagations(parsed) {
     setPropagations(parsed)
@@ -161,23 +109,23 @@ export default function App() {
     } catch (e) { setError('Load project failed: ' + e.message) }
   }
 
-  function loadPropagationsCsv(file) {
+  function loadPropagationsJson(file) {
     const reader = new FileReader()
     reader.onload = e => {
       try {
-        const parsed = parsePropagationsCsv(e.target.result)
+        const parsed = parsePropagationsJson(e.target.result)
         if (!Object.keys(parsed).length) throw new Error('no propagations found in the file')
         setError(null)
         offerPropagations(file.name, parsed)
-      } catch (err) { setError('Invalid propagations.csv: ' + err.message) }
+      } catch (err) { setError('Invalid propagations.json: ' + err.message) }
     }
     reader.readAsText(file)
   }
 
   function downloadPropagations() {
-    const blob = new Blob([serializePropagationsCsv(propagations)], { type: 'text/csv' })
+    const blob = new Blob([serializePropagationsJson(propagations)], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
-    const a = document.createElement('a'); a.href = url; a.download = 'propagations.csv'; a.click()
+    const a = document.createElement('a'); a.href = url; a.download = 'propagations.json'; a.click()
     URL.revokeObjectURL(url)
   }
 
@@ -198,90 +146,8 @@ export default function App() {
     if (!file) return
     const ext = file.name.toLowerCase().split('.').pop()
     if (ext === 'zip') loadZip(file)
-    else if (ext === 'csv') loadPropagationsCsv(file)
-    else setError(`Unsupported file "${file.name}" — upload a project .zip or a propagations.csv.`)
-  }
-
-  // ── Cloud projects ───────────────────────────────────────────────────────
-  // Load a fetched cloud project: its propagations replace the current ones,
-  // and its elements / beam paths / symbols become the source for Import….
-  function applyCloudProject(proj) {
-    const st = proj.state ?? {}
-    const parsed = propagationsFromFileShape(st.propagations)
-    setPropagations(parsed)
-    setActivePropagation(st.activePropagation in parsed ? st.activePropagation : (Object.keys(parsed)[0] ?? null))
-    setProject({
-      name: proj.name,
-      elements: visibleElements(st.elements, st.overrides, st.layers),
-      beamPaths: st.beamPaths ?? {},
-      symbolDefs: st.symbolDefs ?? { ...DEFAULT_SYMBOL_DEFS },
-    })
-    setCurrentCloudProject({ id: proj.id, name: proj.name, updatedAt: proj.updatedAt })
-    setCloudProjectsModalOpen(false)
-    setCloudConflict(null)
-    setError(null)
-    const nPaths = Object.keys(st.beamPaths ?? {}).length
-    setNotice(`Opened cloud project "${proj.name}": ${Object.keys(parsed).length} propagation${Object.keys(parsed).length === 1 ? '' : 's'}, ${nPaths} beam path${nPaths === 1 ? '' : 's'}.`)
-  }
-
-  // Errors are thrown so the project-list modal can show them inline.
-  async function openCloudProjectById(id) {
-    const proj = await fetchCloudProject(id)
-    if (!Object.keys(propagations).length) { applyCloudProject(proj); return }
-    setCloudProjectsModalOpen(false)
-    setConfirm({
-      title: `Open "${proj.name}"?`,
-      text: `Its propagations replace the ${Object.keys(propagations).length} you have open. Plots that aren't saved anywhere else will be lost.`,
-      confirmLabel: 'Open',
-      onConfirm: () => applyCloudProject(proj),
-    })
-  }
-
-  async function saveNewCloudProject(name) {
-    if (!session) return
-    setCloudBusy(true); setError(null)
-    try {
-      const saved = await insertCloudProject(name, propagations, activePropagation, session.user)
-      setCurrentCloudProject(saved)
-      setSaveToCloudPromptOpen(false)
-      setNotice(`Saved to the cloud as "${saved.name}".`)
-    } catch (e) { setError('Save to cloud failed: ' + e.message) }
-    finally { setCloudBusy(false) }
-  }
-
-  // Writes the propagations into the open cloud project. The row is re-read
-  // first so anything changed in the designer since it was opened is kept, and
-  // if it has been saved by someone else the write waits on the user's choice.
-  async function updateCurrentCloudProject(force = false) {
-    if (!session || !currentCloudProject) return
-    setCloudBusy(true); setError(null)
-    try {
-      const latest = await fetchCloudProject(currentCloudProject.id)
-      if (!force && latest.updatedAt !== currentCloudProject.updatedAt) {
-        setCloudConflict({ updatedByEmail: latest.updatedByEmail, updatedAt: latest.updatedAt })
-        return
-      }
-      const saved = await updateCloudProjectPropagations(
-        latest.id, latest.name, latest.state, propagations, activePropagation, session.user)
-      setCurrentCloudProject(saved)
-      setCloudConflict(null)
-      setNotice(`Saved to cloud project "${saved.name}".`)
-    } catch (e) { setError('Save to cloud failed: ' + e.message) }
-    finally { setCloudBusy(false) }
-  }
-
-  async function loadLatestCloudVersion() {
-    if (!currentCloudProject) return
-    setCloudBusy(true)
-    try { applyCloudProject(await fetchCloudProject(currentCloudProject.id)) }
-    catch (e) { setError('Reload from cloud failed: ' + e.message) }
-    finally { setCloudBusy(false) }
-  }
-
-  async function logOutCloud() {
-    if (!supabase) return
-    await supabase.auth.signOut()
-    setCurrentCloudProject(null)
+    else if (ext === 'json') loadPropagationsJson(file)
+    else setError(`Unsupported file "${file.name}" — upload a project .zip or a propagations.json.`)
   }
 
   // ── Drag-and-drop upload ────────────────────────────────────────────────
@@ -316,58 +182,18 @@ export default function App() {
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      {dragActive && <div className="drop-overlay">Drop a project .zip or propagations.csv to upload</div>}
+      {dragActive && <div className="drop-overlay">Drop a project .zip or propagations.json to upload</div>}
       <header className="app-header">
         <div>
           <span className="app-title"><img className="app-logo" src="/favicon.svg" alt="" />Beam Propagation</span>
-          {project && project.name !== currentCloudProject?.name && (
+          {project && (
             <span className="project-name-badge"
               title={`${project.elements.length} elements, ${Object.keys(project.beamPaths).length} beam paths`}>
               {project.name}
             </span>
           )}
-          {currentCloudProject && <span className="project-name-badge">☁ {currentCloudProject.name}</span>}
         </div>
         <div className="header-controls">
-          <button className="file-btn" onClick={() => zipInputRef.current.click()}
-            title="Load an Optical Table Designer project .zip — makes its beam paths available to Import…">
-            Upload Project (.zip)
-          </button>
-          <button className="file-btn" onClick={() => csvInputRef.current.click()}
-            title="Load propagations saved earlier (propagations.csv)">
-            Upload Propagations
-          </button>
-          <button className="file-btn" onClick={downloadPropagations} disabled={!nProps}
-            title="Save all propagations as propagations.csv (Cmd/Ctrl+S)">
-            Download Propagations
-          </button>
-          {supabase && (<>
-            <span className="hdr-sep" />
-            {!session ? (
-              <button className="file-btn" onClick={() => setAuthModalOpen(true)}
-                title="Log in to save and open projects in the cloud">Log in</button>
-            ) : (
-              <div className="file-menu" ref={cloudMenuRef}>
-                <button className="file-btn" onClick={() => setCloudMenuOpen(o => !o)}>☁ Cloud ▾</button>
-                {cloudMenuOpen && (
-                  <div className="file-menu-dropdown">
-                    <div className="file-menu-label">{session.user.email}</div>
-                    <button className="file-menu-item"
-                      onClick={() => { setCloudProjectsModalOpen(true); setCloudMenuOpen(false) }}>Open Cloud Project…</button>
-                    <button className="file-menu-item"
-                      onClick={() => { setSaveToCloudName(currentCloudProject?.name ?? project?.name ?? ''); setSaveToCloudPromptOpen(true); setCloudMenuOpen(false) }}>Save to Cloud…</button>
-                    {currentCloudProject && (
-                      <button className="file-menu-item" disabled={cloudBusy}
-                        onClick={() => { updateCurrentCloudProject(); setCloudMenuOpen(false) }}>Save to Cloud (update)</button>
-                    )}
-                    <div className="file-menu-sep" />
-                    <button className="file-menu-item" onClick={() => { logOutCloud(); setCloudMenuOpen(false) }}>Log out</button>
-                  </div>
-                )}
-              </div>
-            )}
-          </>)}
-          <span className="hdr-sep" />
           <button className="file-btn"
             onClick={() => setTheme(t => t === 'dark' ? 'light' : 'dark')}
             title="Toggle light / dark theme">
@@ -405,73 +231,10 @@ export default function App() {
           beamPaths={project?.beamPaths}
           elements={project?.elements ?? []}
           symbolDefs={project?.symbolDefs}
-          projectName={project?.name}
           onLoadProjectZip={loadProjectForImport}
+          onUploadPropagationsClick={() => jsonInputRef.current.click()}
         />
       </div>
-
-      {authModalOpen && <AuthPanel onClose={() => setAuthModalOpen(false)} />}
-      {cloudProjectsModalOpen && (
-        <CloudProjectsModal
-          currentCloudProjectId={currentCloudProject?.id}
-          onOpen={openCloudProjectById}
-          onClose={() => setCloudProjectsModalOpen(false)} />
-      )}
-
-      {saveToCloudPromptOpen && (
-        <div className="modal-backdrop" onClick={() => setSaveToCloudPromptOpen(false)}>
-          <div className="modal-box" onClick={e => e.stopPropagation()}>
-            <div className="modal-title">Save to Cloud</div>
-            <p className="modal-text">
-              Saves your {nProps} propagation{nProps === 1 ? '' : 's'} as a new cloud project
-              you can open here or in the Optical Table Designer.
-            </p>
-            <form onSubmit={e => { e.preventDefault(); if (saveToCloudName.trim()) saveNewCloudProject(saveToCloudName) }}>
-              <input className="snap-input" style={{ width: '100%', marginBottom: 12 }} autoFocus
-                placeholder="Project name" value={saveToCloudName}
-                onChange={e => setSaveToCloudName(e.target.value)} />
-              <div className="modal-actions">
-                <button type="button" className="small-btn" onClick={() => setSaveToCloudPromptOpen(false)}>Cancel</button>
-                <button type="submit" className="small-btn" disabled={cloudBusy || !saveToCloudName.trim()}>
-                  {cloudBusy ? 'Saving…' : 'Save'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {cloudConflict && (
-        <div className="modal-backdrop">
-          <div className="modal-box">
-            <div className="modal-title">Cloud project changed</div>
-            <p className="modal-text">
-              "{currentCloudProject?.name}" was saved{cloudConflict.updatedByEmail ? ` by ${cloudConflict.updatedByEmail}` : ''} at{' '}
-              {new Date(cloudConflict.updatedAt).toLocaleString()}, after you opened it.
-              Overwriting replaces its propagations with yours; anything else in the project
-              (elements, beam paths, settings) is kept as it is now.
-            </p>
-            <div className="modal-actions">
-              <button className="small-btn" onClick={() => setCloudConflict(null)}>Cancel</button>
-              <button className="small-btn" disabled={cloudBusy} onClick={loadLatestCloudVersion}>Load their version</button>
-              <button className="small-btn" disabled={cloudBusy} onClick={() => updateCurrentCloudProject(true)}>Overwrite propagations</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {confirm && (
-        <div className="modal-backdrop" onClick={() => setConfirm(null)}>
-          <div className="modal-box" onClick={e => e.stopPropagation()}>
-            <div className="modal-title">{confirm.title}</div>
-            <p className="modal-text">{confirm.text}</p>
-            <div className="modal-actions">
-              <button className="small-btn" onClick={() => setConfirm(null)}>Cancel</button>
-              <button className="small-btn" onClick={() => { confirm.onConfirm(); setConfirm(null) }}>{confirm.confirmLabel}</button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {pendingProps && (
         <div className="modal-backdrop" onClick={() => setPendingProps(null)}>
@@ -491,10 +254,8 @@ export default function App() {
         </div>
       )}
 
-      <input ref={zipInputRef} type="file" accept=".zip" style={{ display: 'none' }}
-        onChange={e => pickFile(zipInputRef, e)} />
-      <input ref={csvInputRef} type="file" accept=".csv" style={{ display: 'none' }}
-        onChange={e => pickFile(csvInputRef, e)} />
+      <input ref={jsonInputRef} type="file" accept=".json" style={{ display: 'none' }}
+        onChange={e => pickFile(jsonInputRef, e)} />
     </div>
   )
 }
