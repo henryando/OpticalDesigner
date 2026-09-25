@@ -11,6 +11,7 @@ It runs in your browser at [beampropagation.netlify.app](https://beampropagation
 1. [What it models](#1-what-it-models)
 2. [Quick start: a 1.5:1 telescope](#2-quick-start-a-151-telescope)
 3. [The screen](#3-the-screen)
+   - [The Projects rail: Local and Cloud Storage](#the-projects-rail-local-and-cloud-storage)
 4. [How to…](#4-how-to)
    - [Switch between beam radius and diameter](#switch-between-beam-radius-and-diameter)
    - [Find your input beam from profiler measurements](#find-your-input-beam-from-profiler-measurements)
@@ -73,18 +74,60 @@ Your work is saved in this browser automatically. To keep or share it, see [Save
 
 | Button | What it does |
 |---|---|
-| **Upload Project (.zip)** | Opens a whole Optical Table Designer project: its layout becomes available to **Import…**, and any propagations saved inside it are offered to you (you choose **Replace**, **Add** or **Skip** if you already have plots open). To take only a beam path and leave your plots alone, use **Upload from project .zip** in the optics table instead — see [Import a beam path](#import-a-beam-path-from-the-optical-table-designer). |
-| **Upload Propagations** | Loads a `propagations.csv` saved earlier. |
-| **Download Propagations** | Saves all your plots as `propagations.csv`. Shortcut: `Cmd/Ctrl+S`. |
-| **Log in** / **☁ Cloud ▾** | Cloud storage, if your deployment has it — see [Cloud projects](#cloud-projects). |
 | **☾ Dark** / **☀ Light** | Switches theme. |
 | **Export PDF** | Exports the open propagation as a PDF. |
 
-You can also drop a `.zip` or `.csv` file anywhere on the page to upload it.
+Loading a whole Optical Table Designer project — for **Upload from project .zip** (see [Import a beam path](#import-a-beam-path-from-the-optical-table-designer)) — happens from the optics table, not the top bar. Only the layout is read there; any propagations saved inside the zip are ignored so your open plots are never touched. To load propagations saved *inside* a project zip instead, drop the zip file anywhere on the page — see [Save, share and export](#save-share-and-export).
 
-### Left rail
+You can also drop a `.zip` or `.csv` file anywhere on the page to upload it. Uploading and downloading propagations, logging in and cloud storage all live in the left rail now — see below.
 
-Each plot you work on is its own **propagation**, listed here. Click one to open it; double-click its name (or press ✎) to rename; ✕ deletes it (**Undo** brings it back). **+ New** starts a blank one, and **Import…** starts one from a designer beam path (it asks for a project `.zip` first if none is loaded).
+### The Projects rail: Local and Cloud Storage
+
+Each plot you work on is its own **propagation**, listed in the left rail. Local Storage and Cloud Storage are stacked one above the other in the same rail, so both are visible at once — no tab to switch, and each propagation appears in only one of the two:
+
+- **Local Storage** — every propagation you have, in this browser, that isn't linked to the cloud.
+- **Cloud Storage** — a **Sign in** button (if you aren't logged in) that opens a login window with a link to switch to creating a new account, or, once logged in, every propagation linked to a cloud project (with a sync icon), plus any cloud project not yet pulled into this browser.
+
+Click a propagation to open it; double-click its name to rename. **+ New** starts a blank one; **Upload** loads propagations saved earlier (`propagations.json`); once at least one propagation exists, **⇩ Download all** saves every one of them as `propagations.json` (shortcut: `Cmd/Ctrl+S`). To start a propagation from a designer beam path instead, use **Upload from project .zip** in the optics table once you have a (possibly blank) propagation open — see [Import a beam path](#import-a-beam-path-from-the-optical-table-designer). Right-click any propagation for the full set of commands — see below.
+
+Click **«** in the rail's header to collapse it into a thin strip along the left wall of the screen, freeing up space for the plot; click the strip's **»** (or the vertical "Propagations" label) to bring it back. The collapsed/expanded state is remembered across reloads. Drag the rail's right edge to resize it instead.
+
+<p align="center"><img src="docs/screenshots/cloud-rail.png" alt="The Projects rail with Local Storage and Cloud Storage stacked" width="360" /></p>
+
+#### Right-click menu
+
+| Command | What it does |
+|---|---|
+| Open | Same as clicking the name. |
+| Rename | Same as double-clicking the name. |
+| Duplicate | Makes an independent local-only copy, named "… copy". |
+| Download… | Saves just this one propagation as its own `propagations.json` file. |
+| Move to Cloud… *(local-only items)* | Creates a new cloud project holding just this propagation, under a name you choose. |
+| Sync now *(cloud-linked items)* | Same as clicking the propagation's sync icon — see below. Disabled while already in sync. |
+| Move to Local… *(cloud-linked items)* | **Deletes the shared cloud copy** and keeps only the local one — see the warning below. |
+| Delete… | Deletes the local copy. If the propagation is cloud-linked, you're also offered **Delete everywhere**, which removes it from the cloud project too (or deletes the whole cloud project, if it was the only propagation in it). |
+
+A small **⭳** button next to each row is a shortcut for Download…, and **⋯** opens the same menu as right-click.
+
+#### Sync status
+
+A propagation linked to the cloud shows a small round icon before its name:
+
+| Icon | Status | Clicking it… |
+|---|---|---|
+| ✓ (green) | In sync | Does nothing — already matches the cloud. |
+| ↑ (blue) | Ahead of the cloud — you've changed it here | Pushes your version to the cloud. |
+| ↓ (amber) | Behind the cloud — someone else changed it there | Pulls the newer version, replacing what's here. |
+| ! (red) | Out of sync — both sides changed | Asks whether to keep your version or theirs. |
+| … (grey) | Checking, or not yet pulled | Not clickable while checking; click a not-yet-pulled row's name to pull it. |
+
+Cloud Storage refreshes automatically every 30 seconds while you're logged in, and has its own **⟳ Refresh** button for right now.
+
+**Bundles.** A cloud project can hold more than one propagation — most often because it came from the Optical Table Designer, which stores every propagation for a project together. Propagations that share a cloud project sync as a group: pushing or pulling any one of them pushes or pulls all of them, since they all live in the same row. The right-click menu tells you when a propagation shares its cloud project with others, and *Move to Local…* / *Delete everywhere* explain what happens to those siblings before you confirm.
+
+**Moving out of the cloud is a real deletion.** *Move to Local…* removes the shared row from the cloud entirely — anyone else logged in as that account (including in the Optical Table Designer) loses access to it, not just you. The propagation itself is unaffected; it just keeps living here, in this browser, no longer linked to anything.
+
+**Not-yet-pulled cloud projects.** The Cloud Storage section also lists any cloud project this account has that you haven't opened here and that actually has propagations saved on it — most often an Optical Table Designer project, or one saved from another computer. (A designer project with no propagations doesn't show up — there'd be nothing here to pull.) It shows "not pulled" instead of a sync icon; click its name (or right-click → **Pull to Local Storage**) to bring all of its propagations into Local Storage.
 
 ### Top row
 
@@ -145,7 +188,7 @@ Most things can be adjusted by dragging:
 | A **test point's line or label** ← → | its z |
 | The plot's **bottom-right corner** | the plot size |
 
-Below the plot, **Hide pass-through on plot** and **Hide pass-through in table** declutter imported plots.
+Below the plot, **Show gridlines** overlays faint horizontal/vertical guides at the plot's tick marks; **Show reference beam (no optics)** adds a dashed "no optics" trace showing what the same initial beam would do propagating through free space alone, so you can see at a glance what the optics above actually did to it; **Hide pass-through on plot** and **Hide pass-through in table** declutter imported plots.
 
 ### Beam parameters
 
@@ -197,9 +240,7 @@ This turns a beam path drawn in the [Optical Table Designer](../../README.md) in
 
 <p align="center"><img src="docs/screenshots/import.png" alt="Importing a beam path" width="820" /></p>
 
-1. Click **Upload from project .zip** (at the right of the *Optics and test points* heading) and choose a project downloaded from the designer (**File ▾ → Download Project**). Only the layout is read — any propagations saved inside the zip are ignored, so your open plots are never touched. The project's name appears next to the title, and the path picker opens straight away.
-
-   Already have a project loaded? Just click **Import…** in the left rail to pick from it again. With no project loaded yet, **Import…** asks you for the `.zip` first, the same way. You can also open the designer's project from the cloud instead (see [Cloud projects](#cloud-projects)).
+1. Click **Upload from project .zip** (at the right of the *Optics and test points* heading, once you have a propagation open — **+ New** makes a blank one if you don't yet) and choose a project downloaded from the designer (**File ▾ → Download Project**). Only the layout is read — any propagations saved inside the zip are ignored, so your open plots are never touched. The project's name appears next to the title, and the path picker opens straight away. This works the same whether or not a project is already loaded — it always asks for the `.zip` first.
 2. Pick a **Path**. The diagram shows its elements: scroll to zoom, drag to pan, **Reset view** to recentre, and the tick boxes control what is drawn on each element.
 3. Click a node to set the **start**, then another to set the **end**. If more than one route joins them, a list appears; hover a route to preview it, then click **Import**. The path arrives as a **new propagation** named *Imported: <path>*.
 
@@ -212,7 +253,7 @@ What you get:
 
 Then set the wavelength and initial beam, add anything the layout doesn't contain (test points, prism pairs), and adjust as needed.
 
-If you later change the layout in the designer, load the updated project (top bar **Upload Project (.zip)**, or **Upload from project .zip** and cancel the picker) and click **↻ Reimport** on the propagation. It refreshes the distances and focal lengths, keeping the same path and anything you added yourself.
+If you later change the layout in the designer, load the updated project (**Upload from project .zip**, then cancel the path picker that follows — you don't need to re-pick a path) and click **↻ Reimport** on the propagation. It refreshes the distances and focal lengths, keeping the same path and anything you added yourself.
 
 ### Work with elliptical beams: cylindrical lenses and prism pairs
 
@@ -230,25 +271,11 @@ A **cylindrical lens** works the same way but focuses one axis only. Switch a le
 
 **Automatic.** Your propagations, and the last project you loaded, are kept in this browser, so they are still there after a reload. They are *not* backed up: clearing your browser's site data, or using a different browser or computer, loses them. Save a copy with one of the options below.
 
-**A file.** **Download Propagations** (or `Cmd/Ctrl+S`) saves every plot as `propagations.csv`. **Upload Propagations** loads it again; if you already have plots open you choose **Replace current**, **Add to current** or **Skip**. A project `.zip` from the designer that contains propagations offers the same choice.
-
-**Into the designer.** In the Optical Table Designer, **File ▾ → Upload Propagations…** opens the same file, and plots saved by the designer open here.
+**A file.** The rail's **⇩ Download all** (or `Cmd/Ctrl+S`) saves every plot as `propagations.json`. **Upload** loads it again; if you already have plots open you choose **Replace current**, **Add to current** or **Skip**.
 
 **A PDF.** **Export PDF** makes a landscape page with the plot(s), a summary of the settings and the Beam parameters table, ready to print or attach to a lab-book entry. The plot's shape follows what you see on screen, so drag its corner first if you want it wider or taller.
 
-#### Cloud projects
-
-If a **Log in** button appears in the top bar, your deployment has cloud storage. Log in with the same lab account you use for the Optical Table Designer — they share accounts and projects. Once logged in, the button becomes a **☁ Cloud ▾** menu:
-
-<p align="center"><img src="docs/screenshots/cloud-menu.png" alt="The Cloud menu" width="820" /></p>
-
-- **Open Cloud Project…** — lists your account's projects, including designer projects. Opening one loads its propagations and, if it is a designer project, its beam paths — so **Import…** works straight away with no `.zip`. If you have plots open you are asked before they are replaced.
-- **Save to Cloud…** — saves your propagations as a new cloud project. It holds only the propagations; the designer opens it as an empty project with the plots attached.
-- **Save to Cloud (update)** — appears once a cloud project is open. It writes your propagations back into that project and **only** replaces the propagations: elements, beam paths, settings and images in it are left exactly as they are (including any changes made in the designer since you opened it).
-
-If someone saved the project after you opened it, you're told and can **Overwrite propagations**, **Load their version**, or cancel. The tool checks when you save; it does not watch for changes while you work.
-
-Cloud projects belong to the account that made them, so a team shares one login.
+**To the cloud.** Click **Sign in** at the top of the rail's **Cloud Storage** section, then right-click a propagation and choose **Move to Cloud…**. See [The Projects rail](#the-projects-rail-local-and-cloud-storage) above for the full picture — sync status, bundles, and moving things back out.
 
 ---
 
@@ -258,7 +285,7 @@ Cloud projects belong to the account that made them, so a team shares one login.
 
 | Shortcut | Action |
 |---|---|
-| `Cmd/Ctrl+S` | Download `propagations.csv` (works even while typing in a box). |
+| `Cmd/Ctrl+S` | Download `propagations.json` (works even while typing in a box). |
 | `Cmd/Ctrl+Z` | Undo the last change to the open propagations. While you're typing in a text box it undoes the typing instead. |
 | `Enter` | Commit a number you are typing. (Leaving the box also commits it; clearing it restores a default.) |
 
@@ -275,9 +302,9 @@ x and y each carry their own q. The plotted size is the 1/e² intensity radius (
 
 ### Files
 
-`propagations.csv` has one row per propagation. Most columns are plain settings (name, wavelength, distance, initial beam, whether Split x / y is on, beam-size mode); the optics, test points, import source and fit measurements are stored as JSON in their own columns, so the file opens in Excel and stays readable. Beam sizes in the file are always radii in mm.
+`propagations.json` is a plain JSON array, one object per propagation — settings like name, wavelength, distance, initial beam, Split x / y and beam-size mode alongside the optics, test points, import source and fit measurements, all as native JSON rather than flattened into CSV columns. Beam sizes in the file are always radii in mm.
 
-A designer project `.zip` may contain `elements.csv` and `beam_paths.csv` (used for **Import…**), `settings.json` and `symbols/` (element symbols and layers), and `propagations.csv`.
+A designer project `.zip` may contain `elements.csv` and `beam_paths.csv` (used when importing a beam path), and `settings.json` and `symbols/` (element symbols and layers). A `propagations.json` alongside them is legacy — the designer no longer writes one — but is still read if present.
 
 ---
 
@@ -285,17 +312,17 @@ A designer project `.zip` may contain `elements.csv` and `beam_paths.csv` (used 
 
 | Problem | Likely cause and fix |
 |---|---|
-| **Import…** asks me for a file | No project is loaded yet, so it needs the designer project `.zip` first. Choose it and the path picker opens. |
+| **Upload from project .zip** asks me for a file | It always asks for the designer project `.zip` first — choose it and the path picker opens. |
 | "No beam paths found in …" | The `.zip` has no beam paths. Check the designer project has at least one beam path and that it is a project downloaded with **File ▾ → Download Project**. |
-| Uploading a project `.zip` asks whether to replace my plots | You used the top-bar **Upload Project (.zip)**, which also offers the propagations saved in the zip. To import a beam path only, use **Upload from project .zip** in the optics table. |
+| Dropping a project `.zip` asks whether to replace my plots | That's from dragging the file onto the page — it reads propagations saved inside the zip as well as its layout. **Upload from project .zip** in the optics table only reads the layout and never touches your plots. |
 | A lens has no effect on the beam | Check its **On** box is ticked, that its **z** is between 0 and **Distance**, and that **f** is not 0 (an f of 0 turns the results into "—"). |
 | Cylindrical lens or prism options are greyed out | Tick **Split x / y** in the top row. |
 | A test point isn't on the plot | Its z is outside 0 to **Distance**, or its **On** box is unticked. |
 | Beam sizes show "—" | The beam parameters aren't physical — commonly a lens with f = 0, or a divergence that makes no real beam. Check the initial beam and lens values. |
 | **Apply fit** is greyed out | The X data needs at least 3 rows with widths above zero, spread around the waist. The dialog's message says what is wrong. |
-| Dropping a CSV creates a strange plot or an unexpected prompt | Drop measurement CSVs onto the **Fit from measurements** dialog, not the page — a CSV dropped on the page is read as a `propagations.csv`. |
-| My plots disappeared | They live in this browser's storage; clearing site data, or a different browser/computer, loses them. Restore from a downloaded `propagations.csv` or your cloud project. |
-| There is no **Log in** button | Cloud storage isn't configured for this deployment; everything else works without it. |
+| Dropping a CSV shows an "unsupported file" error | Propagations are `.json` now, not `.csv` — a plain CSV dropped on the page is no longer meaningful here. Drop measurement CSVs onto the **Fit from measurements** dialog instead of the page. |
+| My plots disappeared | They live in this browser's storage; clearing site data, or a different browser/computer, loses them. Restore from a downloaded `propagations.json` or your cloud project. |
+| Cloud Storage just says it isn't configured | Cloud storage isn't set up for this deployment; Local Storage works fully without it. |
 | The exported PDF shows `D0` or `w0` instead of a Greek/subscript symbol | The PDF font only supports plain text; the values are the same. |
 
 Found a bug or want a feature? Tell whoever looks after the tool, or open an issue on the repository.

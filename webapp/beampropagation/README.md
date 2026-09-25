@@ -8,7 +8,7 @@ Hosted at [beampropagation.netlify.app](https://beampropagation.netlify.app). By
 
 <p align="center"><img src="docs/screenshots/overview.png" alt="A 1.5:1 telescope in Beam Propagation" width="820" /></p>
 
-This began as the **Beam Propagation** mode inside the Optical Table Designer and is now also a standalone app. The designer still has its own copy of the mode; the two share the same `propagations.csv` file format, so plots move freely between them (see [Relationship to the designer](#relationship-to-the-designer)).
+This began as a **Beam Propagation** mode inside the Optical Table Designer; that embedded mode has since been removed there, and beam propagation now lives only in this standalone app. It can still import a beam path from a designer project export (see [Relationship to the designer](#relationship-to-the-designer)).
 
 ## Features
 
@@ -20,11 +20,12 @@ This began as the **Beam Propagation** mode inside the Optical Table Designer an
 - **Initial beam** — either **local radius + divergence at z = 0** or **waist size + waist z position**
 - **Fit from measurements** — enter profiled beam widths at several z positions (paste 2-column `z, w` or 3-column `z, wₓ, w_y` straight from Excel, or drop a CSV file onto the dialog / use **Upload CSV** — a header row is ignored); the ideal-Gaussian formula w(z)² = w₀²·(1 + ((z − z₀)/z_R)²) is fit to give w₀, z₀ and z_R, which are applied to the initial beam
 - **Split x / y** — render the two axes stacked or overlaid
+- **Gridlines** — an optional **Show gridlines** toggle overlays faint horizontal/vertical guides at the plot's tick marks
 - **Import from a designer beam path** — **Upload from project .zip** (next to the optics table heading) reads only the layout from a designer project and opens the path picker, so any propagations inside the zip are ignored; any beam path becomes a propagation with real inter-element distances and lens focal lengths (see the [User Guide](USER_GUIDE.md#import-a-beam-path-from-the-optical-table-designer))
 - **Multiple propagations** — each plot lives in its own entry in the left rail; double-click to rename
-- **Undo** — `Cmd/Ctrl+Z`; **Save** — `Cmd/Ctrl+S` downloads `propagations.csv`
-- **Export** — vector PDF of the active propagation; `propagations.csv` download
-- **Cloud projects (optional)** — log in to save plots to the cloud and open them from any computer; opens the Optical Table Designer's cloud projects too
+- **Undo** — `Cmd/Ctrl+Z`; **Save** — `Cmd/Ctrl+S` downloads `propagations.json`
+- **Export** — vector PDF of the active propagation; `propagations.json` download
+- **Projects rail (optional)** — **+ New**, **Upload** (a `propagations.json` saved earlier) and **⇩ Download all** sit in one row above **Local Storage** (every propagation in this browser not linked to the cloud) and **Cloud Storage** (every one that is), stacked one above the other in the same left rail so both are visible at once, with a per-item sync icon (in sync / ahead / behind / out of sync — click to resolve), right-click for rename / duplicate / download / move to cloud or local / delete, and one-click download of a single propagation or all of them. Click **Sign in** at the top of Cloud Storage to open the login/sign-up window; opens the Optical Table Designer's cloud projects too. Click **«** in the rail header (or the collapsed strip's **»**) to hide it into the left wall and get the plot area back, or drag its right edge to resize — the collapsed state and width persist across reloads
 - **Persistence** — plots and the loaded project are saved to localStorage automatically
 - **Light / dark theme** toggle in the header
 
@@ -35,24 +36,23 @@ The [User Guide](USER_GUIDE.md) covers everything in detail. In short:
 1. Click **+ New** in the left rail.
 2. In the top row set the wavelength, the distance to plot over, and whether beam size is shown as radius or diameter.
 3. Set the initial beam, then add lenses, prism pairs and test points to the optics table (or drag icons on the plot).
-4. **Export PDF** (header) for a print-ready plot, or **Download Propagations** (header, or `Cmd/Ctrl+S`) to keep your plots as a `propagations.csv`.
+4. **Export PDF** (header) for a print-ready plot, or the rail's **⇩ Download all** (or `Cmd/Ctrl+S`) to keep your plots as a `propagations.json`.
 
-To work from an Optical Table Designer layout, click **Upload from project .zip** next to the *Optics and test points* heading (or **Import…** in the left rail, or open the designer's project from the cloud) — see [Import a beam path](USER_GUIDE.md#import-a-beam-path-from-the-optical-table-designer). `.zip` and `.csv` files can also be dropped anywhere on the page.
+To work from an Optical Table Designer layout, click **Upload from project .zip** next to the *Optics and test points* heading (or pull one from Cloud Storage) — see [Import a beam path](USER_GUIDE.md#import-a-beam-path-from-the-optical-table-designer). `.zip` and `.csv` files can also be dropped anywhere on the page.
 
-Plots and the last loaded project are kept in this browser's localStorage, so they survive reloads but not clearing site data or switching browser/computer — download `propagations.csv` (or save to the cloud) for a durable copy. A project with very large custom symbols can exceed the browser's storage quota; the session still works, but the project would need to be re-uploaded after a reload.
+Every propagation lives in **Local Storage** in this browser, so it survives reloads but not clearing site data or switching browser/computer — right-click **Download…** (or Cloud Storage) for a durable copy. A project with very large custom symbols can exceed the browser's storage quota; the session still works, but the project would need to be re-uploaded after a reload.
 
-### Cloud projects (optional)
+### Cloud storage (optional)
 
-When the deployment has cloud storage configured (see [Cloud setup](#cloud-setup-optional)), a **Log in** button appears in the header; once logged in it becomes a **☁ Cloud ▾** menu with **Open Cloud Project…**, **Save to Cloud…** and **Save to Cloud (update)**. It uses the **same accounts and cloud projects as the Optical Table Designer**: opening a designer project loads its propagations and beam paths, and saving back replaces only the propagations, leaving the rest of the project untouched. See [Cloud projects](USER_GUIDE.md#cloud-projects) in the User Guide for the details, including what happens when someone else has saved the project meanwhile.
+When the deployment has cloud storage configured (see [Cloud setup](#cloud-setup-optional)), the rail's **Cloud Storage** section (stacked below Local Storage) shows a **Sign in** button that opens a login/sign-up window; once logged in it lists any propagation you've linked to the cloud, plus any cloud project not yet pulled into this browser. It uses the **same accounts and cloud projects as the Optical Table Designer**: pulling a designer project's cloud row brings in its propagations, and pushing back updates only the propagations, leaving the rest of that project untouched. See [Projects rail](USER_GUIDE.md#the-projects-rail-local-and-cloud-storage) in the User Guide for the full walkthrough, including sync status, bundles, and what happens when someone else has changed the cloud project meanwhile.
 
 ## Relationship to the designer
 
-The propagation component, Gaussian maths and `propagations.csv` format started as a **copy** of the ones in `webapp/frontend` (`BeamPropagationMode.jsx`, `gaussian.js`, `propagationCsv.js`, plus small pieces of `csvUtils.js`, `ElementShape.jsx` and `symbols.js`), and the physics (`gaussian.js`) is still identical. While the designer ships its own Beam Propagation mode, a physics fix made in one place needs applying to the other. The two have since diverged in the UI:
+Beam propagation used to also live inside the Optical Table Designer as its own mode, sharing this app's propagation component and Gaussian maths (`gaussian.js`). That embedded copy has been removed from the designer — beam propagation now lives only here, as a standalone app.
 
-- the top row, test points inside the optics table, and the radius/diameter toggle exist only here;
-- the project comes from an uploaded `.zip` or a cloud project rather than live designer state, and there is no "← Designer" button.
+What the designer still provides is **layout data to import from**: this app reads a designer project `.zip` (elements, beam paths, symbol definitions — via a small shared slice of `csvUtils.js`, `ElementShape.jsx` and `symbols.js`) to turn a beam path into a propagation with real inter-element distances and lens focal lengths. It never reads or writes the designer's own files (`elements.csv`, `beam_paths.csv`, `settings.json`) beyond that one-way import, and the designer no longer has any propagation data of its own to read back.
 
-The **file format is kept compatible in both directions**. Test points are stored in the `Test Points JSON` column (and in the cloud row's `testPoints` field) exactly as the designer expects, and this app folds them back into the optics table on load. The radius/diameter choice is an extra trailing `Width mode` column that the designer ignores; a plot that passes through the designer comes back in radius mode.
+The two apps do still share the same Supabase backend — see [Cloud storage](#cloud-storage-optional) below — so a designer project's cloud row can carry propagations pushed here, even though the designer itself never writes or displays them.
 
 ## Development
 
@@ -71,7 +71,7 @@ Cloud projects need no new backend: they use the **same Supabase project as the 
 1. Copy `.env.example` to `.env.local` and fill in `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` (the same values as `webapp/frontend/.env.local`) for local development.
 2. For the deployed site, add the same two variables in Netlify under Site configuration → Environment variables, then trigger a redeploy — environment variables only take effect on the next build.
 
-Without them the app runs local-only with no Log in button and no errors. The anon key is meant to be public; access is controlled by the Row Level Security policies on the table.
+Without them the app runs local-only — the Cloud Storage section just explains that cloud storage isn't configured, with no errors. The anon key is meant to be public; access is controlled by the Row Level Security policies on the table.
 
 ## Deployment (Netlify)
 
@@ -82,7 +82,7 @@ The app is a static Vite build with no server. (The only environment variables a
 3. **Build settings** — set the **Base directory** to `webapp/beampropagation`. The build command (`npm install && npm run build`) and publish directory (`dist`) come from [netlify.toml](netlify.toml) in this folder; if Netlify shows them as empty fields, enter those two values.
 4. **Environment variables** (optional, only for cloud storage) — under *Site configuration → Environment variables* add `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`, the same values the designer's site uses. Do this before the first deploy, or trigger a redeploy afterwards.
 5. **Deploy**, then rename the site under *Site configuration → Site details → Change site name* to `beampropagation`, which gives [beampropagation.netlify.app](https://beampropagation.netlify.app) (if that name is free).
-6. **Check it**: the page loads, **Upload Project (.zip)** followed by **Import…** works, and — if you set the variables — a **Log in** button appears and logging in with the lab account works.
+6. **Check it**: the page loads, **Upload from project .zip** (in the optics table) followed by picking a beam path works, and — if you set the variables — the rail's **Cloud Storage** section shows a **Sign in** button and logging in with the lab account works.
 
 **Which `netlify.toml` is used?** The repository root also has one (for the designer, with `base = "webapp/frontend"`). Netlify looks for the config file in the package directory, then the *base directory*, then the repository root, and uses the first one it finds — so with the base directory set as above, this folder's file is used and the root one is ignored. If a deploy log ever shows it building `webapp/frontend`, the base directory isn't set.
 
