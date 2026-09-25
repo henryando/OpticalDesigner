@@ -1,0 +1,120 @@
+/* ── Projects panel: standalone left-side panel, Local Storage / Cloud
+   Storage stacked and both visible at once ──────────────────────────────── */
+.proj-panel {
+  width: 240px; flex-shrink: 0;
+  display: flex; flex-direction: column;
+  position: relative;
+  background: var(--bg-sidebar); border-right: 1px solid var(--border-side);
+  overflow: hidden;
+  transition: width 0.12s, min-width 0.12s;
+  /* Matches the sidebar's default UI font size — without this, buttons and
+     project titles inherit the page's 16px base instead and look oversized. */
+  font-size: 12px;
+}
+.proj-panel.collapsed { width: 30px; min-width: 30px; }
+.proj-panel-resize {
+  position: absolute; top: 0; right: 0; bottom: 0; width: 4px;
+  cursor: col-resize; z-index: 10; background: transparent;
+  transition: background 0.15s;
+}
+.proj-panel-resize:hover { background: var(--accent-bright); }
+.proj-panel-collapsed-strip {
+  flex: 1; display: flex; flex-direction: column; align-items: center;
+  padding-top: 8px; cursor: pointer; background: none; border: none;
+  color: var(--text-muted); width: 100%;
+}
+.proj-panel-collapsed-strip:hover { color: var(--text-dim); }
+.proj-panel-collapsed-strip .proj-vert-label {
+  writing-mode: vertical-rl; margin-top: 10px;
+  font-size: 11px; font-weight: 600; letter-spacing: 0.5px;
+}
+.proj-panel-head {
+  padding: 8px 10px; border-bottom: 1px solid var(--border-side);
+  display: flex; align-items: center; justify-content: space-between; gap: 6px;
+  font-weight: 600; font-size: 13px; flex-shrink: 0;
+}
+.proj-collapse-btn {
+  background: none; border: none; color: var(--text-muted); cursor: pointer;
+  font-size: 13px; padding: 2px 4px; line-height: 1;
+}
+.proj-collapse-btn:hover { color: var(--text-dim); }
+/* Scrolls as a whole, so Local Storage and Cloud Storage are both visible
+   (one above the other) rather than each fighting for a share of the height. */
+.proj-panel-scroll { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; }
+.proj-section-heading {
+  padding: 8px 10px 4px; margin-top: 4px;
+  font-size: 11px; font-weight: 600; color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: 0.5px;
+  border-top: 1px solid var(--border-side);
+}
+.proj-section-heading:first-child { margin-top: 0; border-top: none; }
+
+.proj-actions { padding: 8px 10px; display: flex; gap: 6px; }
+.proj-section { padding: 8px 10px; border-bottom: 1px solid var(--border-side); }
+.proj-cloud-account {
+  display: flex; align-items: center; gap: 6px; font-size: 11px;
+  color: var(--text-dim);
+}
+.proj-cloud-account .email { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.proj-note { padding: 8px 10px; font-size: 10.5px; color: var(--text-muted); line-height: 1.4; }
+.proj-banner {
+  margin: 6px 10px; padding: 6px 8px; border-radius: 4px; font-size: 11px;
+  display: flex; align-items: flex-start; gap: 6px;
+}
+.proj-banner.error { background: rgba(255, 100, 100, 0.12); border: 1px solid rgba(255, 100, 100, 0.35); color: #ff8080; }
+.proj-banner.notice { background: color-mix(in srgb, var(--accent) 16%, transparent); border: 1px solid var(--border-side); color: var(--text-dim); }
+.proj-banner button { background: none; border: none; color: inherit; cursor: pointer; margin-left: auto; padding: 0 2px; }
+
+.proj-list { list-style: none; padding: 4px 0; margin: 0; }
+.proj-item {
+  padding: 6px 10px; display: flex; align-items: center; gap: 4px;
+  border-left: 3px solid transparent;
+}
+.proj-item:hover { background: color-mix(in srgb, var(--bg-item) 60%, transparent); }
+.proj-item.active {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  border-left-color: var(--accent-bright);
+}
+.proj-item.remote-only { opacity: 0.85; }
+.proj-item-name {
+  flex: 1; text-align: left; min-width: 0;
+  background: none; border: none; color: inherit;
+  cursor: pointer; padding: 0; font: inherit;
+  display: flex; flex-direction: column; gap: 1px;
+}
+.proj-item-name span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.proj-item-date { font-size: 9.5px; color: var(--text-muted); }
+.proj-empty { padding: 12px 10px; color: var(--text-muted); font-size: 11px; }
+.proj-item-sub { font-size: 9.5px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Per-item sync-status control: a small round button before the name. */
+.sync-btn {
+  flex-shrink: 0; width: 16px; height: 16px; border-radius: 50%;
+  border: none; padding: 0; font-size: 10px; line-height: 16px;
+  display: inline-flex; align-items: center; justify-content: center;
+  cursor: pointer;
+}
+.sync-btn[disabled] { cursor: default; }
+.sync-btn.in-sync  { background: color-mix(in srgb, #5cc46a 30%, transparent); color: #5cc46a; }
+.sync-btn.ahead    { background: color-mix(in srgb, #4a9fff 30%, transparent); color: #4a9fff; }
+.sync-btn.behind   { background: color-mix(in srgb, #e0b040 30%, transparent); color: #e0b040; }
+.sync-btn.conflict { background: color-mix(in srgb, #e05a5a 30%, transparent); color: #e05a5a; }
+.sync-btn.checking { background: var(--bg-item); color: var(--text-muted); cursor: default; }
+
+/* Floating right-click context menu */
+.proj-context-menu {
+  position: fixed; z-index: 900; min-width: 170px;
+  background: var(--bg-header); border: 1px solid var(--border-header);
+  border-radius: 4px; box-shadow: 0 4px 16px #0006; padding: 4px 0;
+}
+.proj-context-item {
+  display: block; width: 100%; text-align: left;
+  background: none; border: none; color: var(--text);
+  font-size: 12px; padding: 5px 12px; cursor: pointer;
+}
+.proj-context-item:hover:not(:disabled) { background: var(--accent); }
+.proj-context-item:disabled { opacity: 0.4; cursor: default; }
+.proj-context-item.danger { color: #ff8080; }
+.proj-context-item.danger:hover { background: #ff8080; color: #1a1a1a; }
+.proj-context-sep { height: 1px; background: var(--border-header); margin: 4px 0; }

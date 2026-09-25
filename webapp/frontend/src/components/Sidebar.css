@@ -17,12 +17,13 @@
 /* ── Tabs ── */
 .sidebar-tabs { display: flex; border-bottom: 1px solid var(--border-side); flex-shrink: 0; }
 .sidebar-tab {
-  flex: 1; background: none; border: none;
+  flex: 1; min-width: 0; background: none; border: none;
   border-bottom: 2px solid transparent;
   color: var(--text-muted);
-  font-size: 0.833em; font-weight: 600;
-  text-transform: uppercase; letter-spacing: 0.7px;
-  padding: 7px 0; cursor: pointer;
+  font-size: 0.75em; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.3px;
+  padding: 7px 1px; cursor: pointer;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   transition: color 0.15s, border-color 0.15s;
 }
 .sidebar-tab:hover { color: var(--text-dim); }

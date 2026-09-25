@@ -70,16 +70,24 @@ async function hydrateBgImages(bgImages) {
 // ── Cloud project CRUD ───────────────────────────────────────────────────────
 
 // List every shared cloud project, newest-saved first. Deliberately selects
-// only the small columns — never `state` — so this stays cheap regardless of
-// how large individual projects get.
+// only small columns — never the whole `state` — so this stays cheap
+// regardless of how large individual projects get. The few content fields
+// below are worth the extra bytes: they tell a real designer project apart
+// from a row the Beam Propagation app created purely to hold propagations
+// (blank elements/paths/objects) — pulling one of those into the designer
+// would produce an empty project, so it shouldn't be listed as if it were one.
 export async function listCloudProjects() {
   const { data, error } = await supabase
     .from(TABLE)
-    .select('id, name, updated_at, updated_by_email')
+    .select('id, name, updated_at, updated_by_email, elements:state->elements, beamPaths:state->beamPaths, bgGroups:state->bgGroups, bgImages:state->bgImages')
     .order('updated_at', { ascending: false })
   if (error) throw error
   return data.map(row => ({
     id: row.id, name: row.name, updatedAt: row.updated_at, updatedByEmail: row.updated_by_email,
+    hasDesignerContent: (row.elements?.length ?? 0) > 0
+      || Object.keys(row.beamPaths ?? {}).length > 0
+      || Object.keys(row.bgGroups ?? {}).length > 0
+      || Object.keys(row.bgImages ?? {}).length > 0,
   }))
 }
 

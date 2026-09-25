@@ -2,26 +2,23 @@ import { useState, useMemo, useEffect, useRef } from 'react'
 import JSZip from 'jszip'
 import OpticalCanvas from './components/OpticalCanvas'
 import Sidebar from './components/Sidebar'
+import ProjectsTab from './components/ProjectsTab'
 import SpreadsheetModal from './components/SpreadsheetModal'
-import AuthPanel from './components/AuthPanel'
-import CloudProjectsModal from './components/CloudProjectsModal'
-import BeamPropagationMode from './components/BeamPropagationMode'
-import { DEFAULT_SYMBOL_DEFS } from './utils/symbols'
+import { buildProjectZipBlob, safeProjectName } from './utils/projectZipExport'
 import {
   parseElementsCsv, serializeElementsCsv,
   parseBeamPathsCsv, serializeBeamPathsCsv,
   parseBgObjectsCsv, serializeBgObjectsCsv,
 } from './utils/csvUtils'
-import {
-  parsePropagationsCsv, serializePropagationsCsv,
-} from './utils/propagationCsv'
-import { supabase } from './supabaseClient'
-import {
-  fetchCloudProject, insertCloudProject, updateCloudProject, getCloudProjectUpdatedAt,
-} from './utils/cloudProjects'
+import EXAMPLE_SETTINGS from '../../example_files/settings.json'
 import './App.css'
 
-const DEFAULT_CONFIG = { table_length: 21, table_width: 34, origin_x: 0, origin_y: 0 }
+// New-project defaults (table size, appearance settings, optics-style
+// mappings) come from webapp/example_files/settings.json — the same file
+// distributed as a starting point outside the app — so there's one place to
+// change what a fresh project looks like instead of two copies drifting apart.
+const DEFAULT_CONFIG = EXAMPLE_SETTINGS.config
+const DEFAULT_SYMBOL_DEFS = EXAMPLE_SETTINGS.symbolDefs
 
 async function triggerSave(blob, suggestedName, mimeType, ext) {
   if ('showSaveFilePicker' in window) {
@@ -142,67 +139,9 @@ function HeaderShortcutTip() {
   )
 }
 
-// Deep-equal via JSON — good enough for the plain data blobs we merge.
-function jsonEq(a, b) { try { return JSON.stringify(a) === JSON.stringify(b) } catch { return false } }
-
-// Two-way merge of a local project state with a remote (cloud) one. For each
-// keyed collection: adds items that only one side has; on a real conflict
-// (same key, different content) records an error and keeps the local value.
-// Settings / config / symbolDefs are taken from local (the user's current
-// working state) — they're rarely worth conflict-resolving.
-// Returns { state, errors: string[] }. Callers should surface errors and let
-// the user re-choose if the merge wasn't clean.
-function mergeCloudState(local, remote) {
-  const errors = []
-  function mergeDict(name, l, r, formatKey = k => k) {
-    const out = { ...(r ?? {}) }
-    for (const [k, lv] of Object.entries(l ?? {})) {
-      if (!(k in out)) { out[k] = lv; continue }
-      if (!jsonEq(lv, out[k])) {
-        errors.push(`${name} "${formatKey(k)}" was edited on both sides`)
-      }
-      out[k] = lv     // prefer local on conflict; error is surfaced above
-    }
-    return out
-  }
-  // Elements is an array; key by label for the merge, then flatten back.
-  const lEls = {}, rEls = {}
-  ;(local.elements ?? []).forEach(el => { lEls[el.label] = el })
-  ;(remote.elements ?? []).forEach(el => { rEls[el.label] = el })
-  const merged = { ...rEls }
-  for (const [k, lv] of Object.entries(lEls)) {
-    if (!(k in merged)) { merged[k] = lv; continue }
-    if (!jsonEq(lv, merged[k])) errors.push(`Element "${k}" was edited on both sides`)
-    merged[k] = lv
-  }
-  return {
-    state: {
-      elements:      Object.values(merged),
-      overrides:     { ...(remote.overrides ?? {}), ...(local.overrides ?? {}) },
-      beamPaths:     mergeDict('Beam path',         local.beamPaths,     remote.beamPaths),
-      bgGroups:      mergeDict('Background group',  local.bgGroups,      remote.bgGroups),
-      bgImages:      mergeDict('Background image',  local.bgImages,      remote.bgImages),
-      propagations:  mergeDict('Propagation',       local.propagations,  remote.propagations,
-                               k => local.propagations?.[k]?.name || remote.propagations?.[k]?.name || k),
-      visiblePaths:  { ...(remote.visiblePaths ?? {}), ...(local.visiblePaths ?? {}) },
-      visibleBg:     { ...(remote.visibleBg ?? {}),    ...(local.visibleBg ?? {}) },
-      activePropagation: local.activePropagation ?? remote.activePropagation,
-      // Take local for these — merging settings / configuration rarely helps.
-      settings:    local.settings,
-      config:      local.config,
-      symbolDefs:  local.symbolDefs,
-      sidebarWidth: local.sidebarWidth,
-      layers:      local.layers,
-      activeLayer: local.activeLayer,
-    },
-    errors,
-  }
-}
-
-// Guess which CSV a dropped file is from its name — 'elements' | 'paths' | 'objects' | 'propagations' | null
+// Guess which CSV a dropped file is from its name — 'elements' | 'paths' | 'objects' | null
 function inferCsvKindFromName(filename) {
   const name = filename.toLowerCase()
-  if (/propagation/.test(name)) return 'propagations'
   if (/element/.test(name)) return 'elements'
   if (/beam|path/.test(name)) return 'paths'
   if (/background|object|^bg[-_.]/.test(name)) return 'objects'
@@ -213,7 +152,6 @@ function inferCsvKindFromName(filename) {
 function inferCsvKindFromHeader(text) {
   const firstLine = (text.split(/\r?\n/).find(l => l.trim() && !l.trim().startsWith('#')) || '')
   const cols = firstLine.split(',').map(c => c.trim().toLowerCase())
-  if (cols.includes('optics json') || cols.includes('wavelength nm')) return 'propagations'
   if (cols.includes('label') && cols.includes('type')) return 'elements'
   if (cols.includes('src') && cols.includes('dest')) return 'paths'
   if (cols.includes('group') && cols.includes('x1')) return 'objects'
@@ -231,13 +169,6 @@ export default function App() {
   const [visibleBg,    setVisibleBg]    = useState(() => _ls?.visibleBg    ?? {})
   // Images placed as background layers. Each entry: {href, x, y, widthIn, opacity, visible}
   const [bgImages,     setBgImages]     = useState(() => _ls?.bgImages     ?? {})
-  // Beam propagation plots. Each entry describes an independent sandbox that
-  // walks a sequence of lenses/free-space and plots w(z). Keyed by id.
-  const [propagations,       setPropagations]       = useState(() => _ls?.propagations       ?? {})
-  const [activePropagation,  setActivePropagation]  = useState(() => _ls?.activePropagation  ?? null)
-  // Top-level view mode: 'design' | 'propagation'. Switches between the main
-  // designer and the beam-propagation sandbox.
-  const [appMode, setAppMode] = useState('design')
   const [error,        setError]        = useState(null)
   const [notice,       setNotice]       = useState(null)
 
@@ -273,6 +204,7 @@ export default function App() {
     highlightOrphans: false,
     dimNonPathInEditMode: false,
     borderAnnotations: false,
+    ...EXAMPLE_SETTINGS.settings,
   })
 
   const [searchOpen,  setSearchOpen]  = useState(false)
@@ -296,46 +228,6 @@ export default function App() {
 
   const [currentProjectId,   setCurrentProjectId]   = useState(() => loadCurrentProjectInfo()?.id   ?? null)
   const [currentProjectName, setCurrentProjectName] = useState(() => loadCurrentProjectInfo()?.name ?? null)
-  const [projectsModalOpen,  setProjectsModalOpen]  = useState(false)
-  // Bumped whenever the localStorage projects dict changes (add / delete /
-  // rename), so the Switch-Project modal — which reads from localStorage
-  // directly — re-renders instead of showing a stale list.
-  const [projectsListVersion, setProjectsListVersion] = useState(0)
-  // Inline-rename state for the Switch Project modal.
-  const [renamingProjId, setRenamingProjId] = useState(null)
-  const [renameProjVal, setRenameProjVal]   = useState('')
-  const [newProjPromptOpen,  setNewProjPromptOpen]  = useState(false)
-  const [newProjName,        setNewProjName]        = useState('')
-  const [saveAsPromptOpen,   setSaveAsPromptOpen]   = useState(false)
-  const [saveAsProjName,     setSaveAsProjName]     = useState('')
-  const [dupProjPromptOpen,  setDupProjPromptOpen]  = useState(false)
-  const [dupProjName,        setDupProjName]        = useState('')
-
-  // ── Cloud projects — optional, only active when Supabase is configured. Each
-  // account's cloud projects are private to it (owner-scoped RLS); a team
-  // that wants a shared pool logs everyone into the same account.
-  const [session,                 setSession]                 = useState(null)
-  const [authModalOpen,           setAuthModalOpen]           = useState(false)
-  const [cloudProjectsModalOpen,  setCloudProjectsModalOpen]  = useState(false)
-  // {id, name, updatedAt} of the last cloud project this browser opened /
-  // saved to. Persisted to localStorage so "Save to Cloud (update)" stays
-  // available across reloads.
-  const [currentCloudProject,     setCurrentCloudProject]     = useState(() => {
-    try {
-      const raw = localStorage.getItem('optDesign_current_cloud_project')
-      return raw ? JSON.parse(raw) : null
-    } catch { return null }
-  })
-  const [cloudBusy,               setCloudBusy]               = useState(false)
-  const [cloudError,              setCloudError]              = useState(null)
-  const [cloudConflict,           setCloudConflict]           = useState(null) // {updatedByEmail, updatedAt}
-  // Detected while polling — the current cloud project has a newer version.
-  // `errors` gets populated when a merge attempt didn't come out clean.
-  const [cloudUpdatePrompt,       setCloudUpdatePrompt]       = useState(null) // {updatedByEmail, updatedAt, errors}
-  const [cloudSaveAsName,         setCloudSaveAsName]         = useState('')
-  const [cloudSaveAsPromptOpen,   setCloudSaveAsPromptOpen]   = useState(false)
-  const [saveToCloudPromptOpen,   setSaveToCloudPromptOpen]   = useState(false)
-  const [saveToCloudName,         setSaveToCloudName]         = useState('')
   const [uploadConflict,     setUploadConflict]     = useState(null) // { kind: 'elements'|'paths'|'objects', parsed, parsedCfg }
   const [labelCollisionPrompt, setLabelCollisionPrompt] = useState(null) // { parsed, parsedCfg, count }
   const [manualRelabel,        setManualRelabel]        = useState(null) // { parsed, parsedCfg, resolvedLabels, queue, step, usedLabels, value }
@@ -350,12 +242,10 @@ export default function App() {
   const searchInputRef   = useRef(null)
   const cursorPosRef     = useRef({ x: 0, y: 0 })
   const canvasRef        = useRef(null)
-  const propagationModeRef = useRef(null)
   const elemFileRef      = useRef(null)
   const pathFileRef      = useRef(null)
   const bgFileRef        = useRef(null)
   const settingsFileRef  = useRef(null)
-  const propFileRef      = useRef(null)
   const zipFileRef       = useRef(null)
   const lastAddedTypeRef = useRef('')
   const lastAddedOrientationRef = useRef(0)
@@ -365,47 +255,37 @@ export default function App() {
   const viewMenuRef      = useRef(null)
   const transformMenuRef = useRef(null)
 
-  // Persist state to localStorage (debounced)
+  // Persist state to localStorage (debounced): the anonymous "current
+  // working state" always, and — when a named project is open — that
+  // project's own slot too, so the Projects tab (and its cloud sync status)
+  // reflect what's actually on screen rather than a stale snapshot from
+  // whenever it was last explicitly saved. The slot's `.cloud` link is left
+  // untouched.
   useEffect(() => {
     clearTimeout(persistTimer.current)
     persistTimer.current = setTimeout(() => {
-      try {
-        localStorage.setItem('optDesign_v1', JSON.stringify({
-          elements, overrides, beamPaths, bgGroups, visiblePaths, visibleBg,
-          bgImages, propagations, activePropagation,
-          settings, config, symbolDefs, sidebarWidth, layers, activeLayer,
-        }))
-      } catch {}
+      const snapshot = {
+        elements, overrides, beamPaths, bgGroups, visiblePaths, visibleBg,
+        bgImages,
+        settings, config, symbolDefs, sidebarWidth, layers, activeLayer,
+      }
+      try { localStorage.setItem('optDesign_v1', JSON.stringify(snapshot)) } catch {}
+      if (currentProjectId) {
+        try {
+          const projects = loadSavedProjects()
+          const existing = projects[currentProjectId]
+          if (existing) {
+            projects[currentProjectId] = { ...existing, state: snapshot, savedAt: Date.now() }
+            localStorage.setItem('optDesign_projects', JSON.stringify(projects))
+          }
+        } catch {}
+      }
     }, 800)
-  }, [elements, overrides, beamPaths, bgGroups, visiblePaths, visibleBg, bgImages, propagations, activePropagation, settings, config, symbolDefs, sidebarWidth, layers, activeLayer])
+  }, [elements, overrides, beamPaths, bgGroups, visiblePaths, visibleBg, bgImages, settings, config, symbolDefs, sidebarWidth, layers, activeLayer, currentProjectId])
 
   useEffect(() => {
     document.documentElement.dataset.theme = settings.darkMode ? 'dark' : 'light'
   }, [settings.darkMode])
-
-  // Persist the "which cloud project is open" pointer so reloads keep the
-  // "Save to Cloud (update)" affordance instead of forcing the user through
-  // "Save to Cloud…" (which would create a duplicate).
-  useEffect(() => {
-    try {
-      if (currentCloudProject) {
-        localStorage.setItem('optDesign_current_cloud_project',
-          JSON.stringify(currentCloudProject))
-      } else {
-        localStorage.removeItem('optDesign_current_cloud_project')
-      }
-    } catch {}
-  }, [currentCloudProject])
-
-  // Track the logged-in Supabase user, if any. When Supabase isn't
-  // configured (`supabase` is null), this is a no-op and every cloud UI
-  // element stays hidden — see the header/File-menu render below.
-  useEffect(() => {
-    if (!supabase) return
-    supabase.auth.getSession().then(({ data }) => setSession(data.session))
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, sess) => setSession(sess))
-    return () => sub.subscription.unsubscribe()
-  }, [])
 
   // ── Derived state ──────────────────────────────────────────────────────────
   // All elements with overrides merged — used for the sidebar list (includes hidden)
@@ -510,9 +390,6 @@ export default function App() {
       const tag = document.activeElement?.tagName
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
       if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) {
-        // Propagation mode has its own local undo stack; don't fire the
-        // designer's undo while it's visible.
-        if (appMode === 'propagation') return
         e.preventDefault(); undo()
       }
       if ((e.key === 'n' || e.key === 'N') && !e.metaKey && !e.ctrlKey) {
@@ -548,7 +425,7 @@ export default function App() {
     }
     document.addEventListener('keydown', onKeyDown)
     return () => document.removeEventListener('keydown', onKeyDown)
-  }, [history, elements, selectedLabels, addElement, settings.snapSpacing, undo, saveProject, openBulkEdit, bulkEdit, appMode])
+  }, [history, elements, selectedLabels, addElement, settings.snapSpacing, undo, saveProject, openBulkEdit, bulkEdit])
 
   useEffect(() => {
     if (!fileMenuOpen) return
@@ -857,12 +734,6 @@ export default function App() {
     setBeamPaths(bp => ({ ...bp, [name]: { ...bp[name], color } }))
   }
 
-  // Merge arbitrary fields onto a path (used by the propagation modal for
-  // per-path wavelength_nm / w0_um). No history push — tuning-only.
-  function updatePathFields(name, patch) {
-    setBeamPaths(bp => (bp[name] ? { ...bp, [name]: { ...bp[name], ...patch } } : bp))
-  }
-
   // ── Layer helpers ──────────────────────────────────────────────────────────
   function addLayer(name) {
     const trimmed = name.trim()
@@ -915,7 +786,7 @@ export default function App() {
   // ── Project helpers ────────────────────────────────────────────────────────
   function captureProjectState() {
     return { elements, overrides, beamPaths, bgGroups, visiblePaths, visibleBg,
-             bgImages, propagations, activePropagation,
+             bgImages,
              settings, config, symbolDefs, sidebarWidth, layers, activeLayer }
   }
 
@@ -927,12 +798,6 @@ export default function App() {
     if (s.visiblePaths != null) setVisiblePaths(s.visiblePaths)
     if (s.visibleBg    != null) setVisibleBg(s.visibleBg)
     if (s.bgImages     != null) setBgImages(s.bgImages)
-    // Propagations are per-project. If the incoming state doesn't carry them
-    // (an older project saved before the feature existed, or a fresh project
-    // that started empty), reset to empty so state from the previous project
-    // doesn't leak in.
-    setPropagations(s.propagations ?? {})
-    setActivePropagation(s.activePropagation ?? null)
     if (s.settings     != null) setSettings(prev => ({ ...prev, ...s.settings }))
     if (s.config       != null) setConfig(s.config)
     if (s.symbolDefs   != null) setSymbolDefs(s.symbolDefs)
@@ -943,17 +808,20 @@ export default function App() {
     setHistory([])
   }
 
-  function saveProjectSlot(name, id, stateOverride) {
+  // `preserveCloud` keeps whatever `.cloud` metadata the slot already had —
+  // used when refreshing a project's saved state (autosave, rename) without
+  // touching its cloud link. A brand-new or duplicated slot has none.
+  function saveProjectSlot(name, id, stateOverride, preserveCloud = false) {
     const trimmed = name.trim() || 'Untitled'
     const pid = id ?? crypto.randomUUID()
     const projects = loadSavedProjects()
-    projects[pid] = { name: trimmed, savedAt: Date.now(), state: stateOverride ?? captureProjectState() }
+    const cloud = preserveCloud ? (projects[pid]?.cloud ?? null) : null
+    projects[pid] = { name: trimmed, savedAt: Date.now(), state: stateOverride ?? captureProjectState(), cloud }
     localStorage.setItem('optDesign_projects', JSON.stringify(projects))
     localStorage.setItem('optDesign_current_project', JSON.stringify({ id: pid, name: trimmed }))
     setCurrentProjectId(pid)
     setCurrentProjectName(trimmed)
-    setCurrentCloudProject(null)
-    setProjectsListVersion(v => v + 1)
+    return pid
   }
 
   function openProjectById(id) {
@@ -964,8 +832,6 @@ export default function App() {
     localStorage.setItem('optDesign_current_project', JSON.stringify({ id, name: project.name }))
     setCurrentProjectId(id)
     setCurrentProjectName(project.name)
-    setCurrentCloudProject(null)
-    setProjectsModalOpen(false)
   }
 
   function renameProjectById(id, newName) {
@@ -980,7 +846,6 @@ export default function App() {
       localStorage.setItem('optDesign_current_project', JSON.stringify({ id, name: trimmed }))
       setCurrentProjectName(trimmed)
     }
-    setProjectsListVersion(v => v + 1)
   }
 
   function deleteProjectById(id) {
@@ -992,166 +857,21 @@ export default function App() {
       setCurrentProjectId(null)
       setCurrentProjectName(null)
     }
-    setProjectsListVersion(v => v + 1)
   }
 
+  // Creates a brand-new, immediately-persisted project slot — it shows up in
+  // the Projects tab right away, the same as any other project.
   function startNewProject(name) {
     const trimmed = name.trim() || 'Untitled'
-    applyProjectState({
+    const blankState = {
       elements: [], overrides: {}, beamPaths: {}, bgGroups: {},
       visiblePaths: {}, visibleBg: {}, bgImages: {},
-      propagations: {}, activePropagation: null,
       config: DEFAULT_CONFIG,
       symbolDefs: { ...DEFAULT_SYMBOL_DEFS },
       layers: { Default: true }, activeLayer: 'Default',
-    })
-    localStorage.removeItem('optDesign_current_project')
-    setCurrentProjectId(null)
-    setCurrentProjectName(trimmed)
-    setCurrentCloudProject(null)
-    setNewProjPromptOpen(false)
-    setNewProjName('')
-  }
-
-  // ── Cloud project helpers ──────────────────────────────────────────────────
-  // Mirror the local-slot helpers above, routed through Supabase instead of
-  // localStorage. A project is either a local slot, a cloud project, or
-  // neither — opening/starting one clears the other's identity, same as the
-  // local helpers already do for each other.
-  async function openCloudProjectById(id) {
-    setCloudError(null)
-    const proj = await fetchCloudProject(id)
-    applyProjectState(proj.state)
-    localStorage.removeItem('optDesign_current_project')
-    setCurrentProjectId(null)
-    setCurrentProjectName(null)
-    setCurrentCloudProject({ id: proj.id, name: proj.name, updatedAt: proj.updatedAt })
-    setCloudProjectsModalOpen(false)
-  }
-
-  async function saveNewCloudProject(name) {
-    if (!session) return
-    setCloudBusy(true); setCloudError(null)
-    try {
-      const saved = await insertCloudProject(name, captureProjectState(), session.user)
-      setCurrentProjectId(null)
-      setCurrentProjectName(null)
-      localStorage.removeItem('optDesign_current_project')
-      setCurrentCloudProject(saved)
-      setSaveToCloudPromptOpen(false)
-      setSaveToCloudName('')
-    } catch (e) {
-      setCloudError(e.message)
-    } finally {
-      setCloudBusy(false)
     }
-  }
-
-  // Updates the currently-open cloud project, unless someone else saved it
-  // since it was loaded — in which case a conflict prompt is shown instead
-  // (see cloudConflict state) and the write is held until the user decides.
-  async function updateCurrentCloudProject(force = false) {
-    if (!session || !currentCloudProject) return
-    setCloudBusy(true); setCloudError(null)
-    try {
-      if (!force) {
-        const latest = await getCloudProjectUpdatedAt(currentCloudProject.id)
-        if (latest.updatedAt !== currentCloudProject.updatedAt) {
-          setCloudConflict(latest)
-          return
-        }
-      }
-      const saved = await updateCloudProject(
-        currentCloudProject.id, currentCloudProject.name, captureProjectState(), session.user
-      )
-      setCurrentCloudProject(saved)
-      setCloudConflict(null)
-    } catch (e) {
-      setCloudError(e.message)
-    } finally {
-      setCloudBusy(false)
-    }
-  }
-
-  async function logOutCloud() {
-    if (!supabase) return
-    await supabase.auth.signOut()
-    setCurrentCloudProject(null)
-  }
-
-  // ── Periodic cloud freshness check ────────────────────────────────────────
-  // While a cloud project is open, ping the server every 30 s. If its
-  // updatedAt bumped past what we last saved / loaded, offer the user four
-  // ways out via the cloudUpdatePrompt modal below.
-  const CLOUD_POLL_MS = 30_000
-  useEffect(() => {
-    if (!session || !currentCloudProject || cloudUpdatePrompt || cloudConflict) return
-    let stopped = false
-    async function poll() {
-      if (stopped) return
-      try {
-        const latest = await getCloudProjectUpdatedAt(currentCloudProject.id)
-        if (!stopped && latest.updatedAt !== currentCloudProject.updatedAt) {
-          setCloudUpdatePrompt({ ...latest, errors: null })
-        }
-      } catch { /* transient; try again next tick */ }
-    }
-    const t = setInterval(poll, CLOUD_POLL_MS)
-    return () => { stopped = true; clearInterval(t) }
-  }, [session, currentCloudProject?.id, currentCloudProject?.updatedAt, cloudUpdatePrompt, cloudConflict])
-
-  // Resolve helpers used by the cloudUpdatePrompt modal.
-  async function resolveCloudReload() {
-    if (!currentCloudProject) return
-    setCloudUpdatePrompt(null)
-    await openCloudProjectById(currentCloudProject.id)
-  }
-  async function resolveCloudOverwrite() {
-    setCloudUpdatePrompt(null)
-    await updateCurrentCloudProject(true)
-  }
-  function resolveCloudSaveAs() {
-    // Pre-fill with the current name + " (local)" as a nudge to disambiguate.
-    setCloudSaveAsName(`${currentCloudProject?.name ?? 'Project'} (local)`)
-    setCloudSaveAsPromptOpen(true)
-  }
-  async function commitCloudSaveAs() {
-    const name = cloudSaveAsName.trim()
-    if (!name || !session) return
-    try {
-      const saved = await insertCloudProject(name, captureProjectState(), session.user)
-      setCurrentCloudProject(saved)
-      setCloudSaveAsPromptOpen(false)
-      setCloudSaveAsName('')
-      setCloudUpdatePrompt(null)
-    } catch (e) { setCloudError(e.message) }
-  }
-  async function resolveCloudMerge() {
-    if (!session || !currentCloudProject) return
-    try {
-      const remote = await fetchCloudProject(currentCloudProject.id)
-      const { state, errors } = mergeCloudState(captureProjectState(), remote.state)
-      if (errors.length) {
-        // Surface conflicts and let the user pick a different resolution.
-        setCloudUpdatePrompt(prev => prev
-          ? { ...prev, updatedAt: remote.updatedAt, errors }
-          : { updatedAt: remote.updatedAt, errors })
-        return
-      }
-      applyProjectState(state)
-      // Push the merged state directly (React state hasn't caught up yet
-      // from applyProjectState, so reading captureProjectState() would be
-      // stale).
-      const saved = await updateCloudProject(
-        remote.id, remote.name, state, session.user
-      )
-      setCurrentCloudProject(saved)
-      setCloudUpdatePrompt(null)
-    } catch (e) {
-      setCloudUpdatePrompt(prev => prev
-        ? { ...prev, errors: [`Merge failed: ${e.message}`] }
-        : { updatedAt: null, errors: [`Merge failed: ${e.message}`] })
-    }
+    applyProjectState(blankState)
+    saveProjectSlot(trimmed, null, blankState)
   }
 
   function renameBeamPath(oldName, newName) {
@@ -1373,65 +1093,10 @@ export default function App() {
   // ── Project save / load (ZIP) ─────────────────────────────────────────────
   async function saveProject() {
     try {
-      const zip = new JSZip()
-
-      // Write uploaded SVGs as files; replace data URL hrefs with file paths in settings
-      const processedSymbolDefs = {}
-      const usedSlugs = new Set()
-      for (const [type, def] of Object.entries(symbolDefs)) {
-        if (def.href?.startsWith('data:')) {
-          let slug = type.replace(/[^a-z0-9._-]/gi, '_').toLowerCase()
-          if (usedSlugs.has(slug)) {
-            let i = 2; while (usedSlugs.has(`${slug}_${i}`)) i++; slug = `${slug}_${i}`
-          }
-          usedSlugs.add(slug)
-          const path = `symbols/${slug}.svg`
-          const [, b64] = def.href.split(',')
-          zip.file(path, b64, { base64: true })
-          processedSymbolDefs[type] = { ...def, href: `/${path}` }
-        } else {
-          processedSymbolDefs[type] = def
-        }
-      }
-
-      // Extract image data URLs to their own files, mirroring the pattern used
-      // for custom symbol SVGs. Keeps the settings/manifest JSON small and lets
-      // people peek inside a project archive with `unzip -l`.
-      const processedBgImages = {}
-      const usedImgSlugs = new Set()
-      for (const [name, img] of Object.entries(bgImages)) {
-        if (img.href?.startsWith('data:image/')) {
-          const mime = img.href.slice(5, img.href.indexOf(';'))
-          const ext = mime.split('/')[1] === 'jpeg' ? 'jpg' : mime.split('/')[1]
-          let slug = name.replace(/[^a-z0-9._-]/gi, '_').toLowerCase()
-          if (usedImgSlugs.has(slug)) {
-            let i = 2; while (usedImgSlugs.has(`${slug}_${i}`)) i++; slug = `${slug}_${i}`
-          }
-          usedImgSlugs.add(slug)
-          const path = `background_images/${slug}.${ext}`
-          const [, b64] = img.href.split(',')
-          zip.file(path, b64, { base64: true })
-          processedBgImages[name] = { ...img, href: `/${path}` }
-        } else {
-          processedBgImages[name] = img
-        }
-      }
-
-      zip.file('settings.json', JSON.stringify({
-        settings, config, symbolDefs: processedSymbolDefs, layers, activeLayer,
-        bgImages: processedBgImages,
-      }, null, 2))
-      if (elements.length)                  zip.file('elements.csv',           serializeElementsCsv(elements, overrides, config))
-      if (Object.keys(beamPaths).length)    zip.file('beam_paths.csv',         serializeBeamPathsCsv(beamPaths))
-      if (Object.keys(bgGroups).length)     zip.file('background_objects.csv', serializeBgObjectsCsv(bgGroups))
-      if (Object.keys(propagations).length) zip.file('propagations.csv',       serializePropagationsCsv(propagations))
-      const blob = await zip.generateAsync({ type: 'blob' })
-      // Use whichever name identifies the currently-open project: a local
-      // slot name, or (for cloud projects that were never renamed locally)
-      // the cloud project's name. Falls back to a generic 'project.zip'.
-      const rawName = currentProjectName || currentCloudProject?.name || ''
-      const cleanName = rawName.replace(/[^a-z0-9_\-. ]/gi, '_').trim()
-      const zipName = cleanName ? `${cleanName}.zip` : 'project.zip'
+      const blob = await buildProjectZipBlob(captureProjectState())
+      // Use whichever name identifies the currently-open project, falling
+      // back to a generic 'project.zip'.
+      const zipName = `${safeProjectName(currentProjectName)}.zip`
       await triggerSave(blob, zipName, 'application/zip', 'zip')
     } catch (e) { if (e.name !== 'AbortError') setError('Save project failed: ' + e.message) }
   }
@@ -1469,15 +1134,14 @@ export default function App() {
       const readZipFile = async name => {
         const f = zip.file(name); return f ? await f.async('string') : null
       }
-      const [settingsText, elemText, pathsText, bgText, propText] = await Promise.all([
+      const [settingsText, elemText, pathsText, bgText] = await Promise.all([
         readZipFile('settings.json'),
         readZipFile('elements.csv'),
         readZipFile('beam_paths.csv'),
         readZipFile('background_objects.csv'),
-        readZipFile('propagations.csv'),
       ])
       setError(null)
-      setZipUpload({ fileName: file.name, settingsText, elemText, pathsText, bgText, propText, customSvgMap, bgImageMap })
+      setZipUpload({ fileName: file.name, settingsText, elemText, pathsText, bgText, customSvgMap, bgImageMap })
       setZipStage('choose')
     } catch (e) {
       setError('Load project failed: ' + e.message)
@@ -1501,7 +1165,7 @@ export default function App() {
   // "Open as New Project": full replace, then persisted as a new, separately-named slot
   function applyZipAsNewProject(name) {
     const trimmed = name.trim() || 'Untitled'
-    const { settingsText, elemText, pathsText, bgText, propText, customSvgMap, bgImageMap } = zipUpload
+    const { settingsText, elemText, pathsText, bgText, customSvgMap, bgImageMap } = zipUpload
 
     let newSettings = { ...settings }, newConfig = DEFAULT_CONFIG, newSymbolDefs = { ...DEFAULT_SYMBOL_DEFS }
     let newLayers = { Default: true }, newActiveLayer = 'Default'
@@ -1552,16 +1216,9 @@ export default function App() {
       Object.keys(parsed).forEach(k => { newVisibleBg[k] = true })
     }
 
-    let newPropagations = {}, newActivePropagation = null
-    if (propText) {
-      newPropagations = parsePropagationsCsv(propText)
-      newActivePropagation = Object.keys(newPropagations)[0] ?? null
-    }
-
     const newState = {
       elements: newElements, overrides: {}, beamPaths: newBeamPaths, bgGroups: newBgGroups,
       visiblePaths: newVisiblePaths, visibleBg: newVisibleBg, bgImages: newBgImages,
-      propagations: newPropagations, activePropagation: newActivePropagation,
       settings: newSettings, config: newConfig,
       symbolDefs: newSymbolDefs, sidebarWidth, layers: newLayers, activeLayer: newActiveLayer,
     }
@@ -1570,10 +1227,10 @@ export default function App() {
     cancelZipUpload()
   }
 
-  // "Overwrite Current Project": elements, paths, objects, propagations, then settings — one decision at a time
+  // "Overwrite Current Project": elements, paths, objects, then settings — one decision at a time
   function startZipOverwriteFlow() {
     setZipStage(null)
-    advanceZipQueue(['elements', 'paths', 'objects', 'propagations', 'settings'])
+    advanceZipQueue(['elements', 'paths', 'objects', 'settings'])
   }
 
   function advanceZipQueue(queue) {
@@ -1608,18 +1265,6 @@ export default function App() {
       if (err) { setError(err); next(); return }
       if (Object.keys(bgGroups).length) setUploadConflict({ kind: 'objects', parsed, next })
       else { applyBgUpload(parsed, false); next() }
-    }
-    if (kind === 'propagations') {
-      // Propagations get merged in (new UUIDs, no label collisions). No
-      // conflict prompt.
-      if (!zipUpload.propText) { next(); return }
-      try {
-        const parsed = parsePropagationsCsv(zipUpload.propText)
-        setPropagations(prev => ({ ...prev, ...parsed }))
-        const firstNew = Object.keys(parsed)[0]
-        if (firstNew) setActivePropagation(firstNew)
-      } catch {}
-      next()
     }
   }
 
@@ -1866,7 +1511,6 @@ export default function App() {
     if (kind === 'elements') loadElementsFile(file)
     else if (kind === 'paths') loadPathsFile(file)
     else if (kind === 'objects') loadBgFile(file)
-    else if (kind === 'propagations') loadPropagationsFile(file)
   }
 
   function handleDroppedFile(file) {
@@ -1920,27 +1564,6 @@ export default function App() {
   async function savePathsCSV() {
     const csv = serializeBeamPathsCsv(beamPaths)
     await triggerSave(new Blob([csv], { type: 'text/csv' }), 'beam_paths.csv', 'text/csv', 'csv')
-  }
-
-  async function savePropagationsCSV() {
-    const csv = serializePropagationsCsv(propagations)
-    await triggerSave(new Blob([csv], { type: 'text/csv' }), 'propagations.csv', 'text/csv', 'csv')
-  }
-
-  function loadPropagationsFile(file) {
-    if (!file) return
-    const reader = new FileReader()
-    reader.onload = e => {
-      try {
-        const parsed = parsePropagationsCsv(e.target.result)
-        // Merge into existing propagations (new UUIDs are minted on parse).
-        setPropagations(prev => ({ ...prev, ...parsed }))
-        const firstNew = Object.keys(parsed)[0]
-        if (firstNew) setActivePropagation(firstNew)
-      } catch (err) { setError('Invalid propagations.csv: ' + err.message) }
-    }
-    reader.readAsText(file)
-    propFileRef.current.value = ''
   }
 
   async function saveBgCSV() {
@@ -2241,20 +1864,14 @@ export default function App() {
       <header className="app-header">
         <span className="app-title">👁️ Optical Table Designer</span>
         {currentProjectName && <span className="project-name-badge">{currentProjectName}</span>}
-        {currentCloudProject && <span className="project-name-badge">☁ {currentCloudProject.name}</span>}
         <HeaderShortcutTip />
         <div className="header-controls">
+          <button className="file-btn"
+            onClick={() => setSettings(prev => ({ ...prev, darkMode: !prev.darkMode }))}
+            title="Toggle light / dark theme">
+            {settings.darkMode ? '☀ Light' : '☾ Dark'}
+          </button>
           <a className="file-btn" href="https://github.com/henryando/OpticalDesigner#readme" target="_blank" rel="noreferrer">GitHub Readme</a>
-          {supabase && appMode === 'design' && (
-            session ? (
-              <>
-                <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{session.user.email}</span>
-                <button className="file-btn" onClick={logOutCloud}>Log out</button>
-              </>
-            ) : (
-              <button className="file-btn" onClick={() => setAuthModalOpen(true)}>Log in</button>
-            )
-          )}
           <div className="file-menu" ref={fileMenuRef}>
             <button className="file-btn" onClick={() => setFileMenuOpen(o => !o)}>File ▾</button>
             {fileMenuOpen && (
@@ -2264,7 +1881,6 @@ export default function App() {
                 <button className="file-menu-item" onClick={() => { pathFileRef.current.click(); setFileMenuOpen(false) }}>Upload Paths…</button>
                 <button className="file-menu-item" onClick={() => { bgFileRef.current.click(); setFileMenuOpen(false) }}>Upload Objects…</button>
                 <button className="file-menu-item" onClick={() => { settingsFileRef.current.click(); setFileMenuOpen(false) }}>Upload Settings…</button>
-                <button className="file-menu-item" onClick={() => { propFileRef.current.click(); setFileMenuOpen(false) }}>Upload Propagations…</button>
                 <button className="file-menu-item" onClick={() => { zipFileRef.current.click(); setFileMenuOpen(false) }}>Upload Project…</button>
                 <div className="file-menu-sep" />
                 <div className="file-menu-label">Download</div>
@@ -2272,36 +1888,11 @@ export default function App() {
                 <button className="file-menu-item" onClick={() => { savePathsCSV(); setFileMenuOpen(false) }} disabled={!Object.keys(beamPaths).length}>Download Paths</button>
                 <button className="file-menu-item" onClick={() => { saveBgCSV(); setFileMenuOpen(false) }} disabled={!Object.keys(bgGroups).length}>Download Objects</button>
                 <button className="file-menu-item" onClick={() => { saveSettingsJSON(); setFileMenuOpen(false) }}>Download Settings</button>
-                <button className="file-menu-item" onClick={() => { savePropagationsCSV(); setFileMenuOpen(false) }} disabled={!Object.keys(propagations).length}>Download Propagations</button>
                 <button className="file-menu-item" onClick={() => { saveProject(); setFileMenuOpen(false) }}>Download Project</button>
-                <div className="file-menu-sep" />
-                <div className="file-menu-label">Projects</div>
-                <button className="file-menu-item" onClick={() => { setNewProjName(''); setNewProjPromptOpen(true); setFileMenuOpen(false) }}>New Project…</button>
-                <button className="file-menu-item" onClick={() => { setProjectsModalOpen(true); setFileMenuOpen(false) }}>Switch Project…</button>
-                <button className="file-menu-item" onClick={() => { setSaveAsProjName(currentProjectName ?? ''); setSaveAsPromptOpen(true); setFileMenuOpen(false) }}>Rename Project…</button>
-                <button className="file-menu-item" onClick={() => { setDupProjName(currentProjectName ? `${currentProjectName} copy` : ''); setDupProjPromptOpen(true); setFileMenuOpen(false) }}>Save Project As…</button>
-                {supabase && (
-                  <>
-                    <div className="file-menu-sep" />
-                    <div className="file-menu-label">Cloud</div>
-                    {!session ? (
-                      <button className="file-menu-item" onClick={() => { setAuthModalOpen(true); setFileMenuOpen(false) }}>Log in to use Cloud Projects…</button>
-                    ) : (
-                      <>
-                        <button className="file-menu-item" onClick={() => { setCloudError(null); setCloudProjectsModalOpen(true); setFileMenuOpen(false) }}>Open Cloud Project…</button>
-                        <button className="file-menu-item" onClick={() => { setSaveToCloudName(currentCloudProject?.name ?? currentProjectName ?? ''); setCloudError(null); setSaveToCloudPromptOpen(true); setFileMenuOpen(false) }}>Save to Cloud…</button>
-                        {currentCloudProject && (
-                          <button className="file-menu-item" disabled={cloudBusy}
-                            onClick={() => { updateCurrentCloudProject(); setFileMenuOpen(false) }}>Save to Cloud (update)</button>
-                        )}
-                      </>
-                    )}
-                  </>
-                )}
               </div>
             )}
           </div>
-          {appMode === 'design' ? (<div className="file-menu" ref={viewMenuRef}>
+          <div className="file-menu" ref={viewMenuRef}>
             <button className="file-btn" onClick={() => setViewMenuOpen(o => !o)}>View ▾</button>
             {viewMenuOpen && (
               <div className="file-menu-dropdown">
@@ -2315,8 +1906,8 @@ export default function App() {
                 </button>
               </div>
             )}
-          </div>) : null}
-          {appMode === 'design' ? (<div className="file-menu" ref={transformMenuRef}>
+          </div>
+          <div className="file-menu" ref={transformMenuRef}>
             <button className="file-btn" onClick={() => setTransformMenuOpen(o => !o)}>Transform ▾</button>
             {transformMenuOpen && (
               <div className="file-menu-dropdown">
@@ -2329,22 +1920,9 @@ export default function App() {
                 <button className="file-menu-item" onClick={() => { transformProject('flipV'); setTransformMenuOpen(false) }}>↕ Flip vertical</button>
               </div>
             )}
-          </div>) : null}
-          {appMode === 'design' && <span className="hdr-sep" />}
-          <button className="file-btn" onClick={() => setAppMode(m => m === 'design' ? 'propagation' : 'design')}
-            title="Toggle beam propagation sandbox">
-            {appMode === 'design' ? 'Beam Propagation' : 'Designer'}
-          </button>
-          {appMode === 'design' && (<>
-            <span className="hdr-sep" />
-            <button className="file-btn file-btn-accent" onClick={handleExportPDF} disabled={!effectiveElements.length}>Export PDF</button>
-          </>)}
-          {appMode === 'propagation' && (<>
-            <span className="hdr-sep" />
-            <button className="file-btn file-btn-accent"
-              onClick={() => propagationModeRef.current?.exportPdf()}
-              disabled={!activePropagation}>Export PDF</button>
-          </>)}
+          </div>
+          <span className="hdr-sep" />
+          <button className="file-btn file-btn-accent" onClick={handleExportPDF} disabled={!effectiveElements.length}>Export PDF</button>
         </div>
       </header>
 
@@ -2362,27 +1940,8 @@ export default function App() {
         </div>
       )}
 
-      {cloudError && (
-        <div className="gen-banner gen-banner-error">
-          <pre>{cloudError}</pre>
-          <button onClick={() => setCloudError(null)}>✕</button>
-        </div>
-      )}
 
       <div className="app-body" style={{ position: 'relative' }}>
-        {appMode === 'propagation' && (
-          <BeamPropagationMode
-            ref={propagationModeRef}
-            propagations={propagations}
-            activePropagation={activePropagation}
-            onSetPropagations={setPropagations}
-            onSetActivePropagation={setActivePropagation}
-            onExit={() => setAppMode('design')}
-            beamPaths={beamPaths}
-            elements={effectiveElements}
-            symbolDefs={symbolDefs}
-          />
-        )}
         {searchOpen && (
           <div style={{
             position: 'absolute', top: 8, right: 8, zIndex: 200,
@@ -2407,6 +1966,19 @@ export default function App() {
             <button className="small-btn" onClick={() => { setSearchOpen(false); setSearchQuery('') }}>✕</button>
           </div>
         )}
+        <ProjectsTab
+          currentProjectId={currentProjectId}
+          currentProjectName={currentProjectName}
+          captureProjectState={captureProjectState}
+          applyProjectState={applyProjectState}
+          setCurrentProjectName={setCurrentProjectName}
+          openProjectById={openProjectById}
+          renameProjectById={renameProjectById}
+          deleteProjectById={deleteProjectById}
+          startNewProject={startNewProject}
+          saveProjectSlot={saveProjectSlot}
+          onUploadProjectClick={() => zipFileRef.current.click()}
+        />
         <OpticalCanvas
           ref={canvasRef}
           elements={effectiveElements}
@@ -2542,257 +2114,6 @@ export default function App() {
           onClose={() => setViewModal(null)} />
       )}
 
-      {/* ── New Project prompt ──────────────────────────────────────────────── */}
-      {newProjPromptOpen && (
-        <div className="modal-backdrop" onClick={() => setNewProjPromptOpen(false)}>
-          <div className="modal-box" onClick={e => e.stopPropagation()}>
-            <div className="modal-title">New Project</div>
-            <input className="snap-input" style={{ width: '100%', boxSizing: 'border-box' }}
-              placeholder="Project name"
-              value={newProjName}
-              onChange={e => setNewProjName(e.target.value)}
-              autoFocus
-              onKeyDown={e => {
-                if (e.key === 'Enter') startNewProject(newProjName)
-                if (e.key === 'Escape') setNewProjPromptOpen(false)
-              }} />
-            <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
-              <button className="small-btn" onClick={() => startNewProject(newProjName)}>Create</button>
-              <button className="small-btn" onClick={() => setNewProjPromptOpen(false)}>Cancel</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── Save As Project prompt ───────────────────────────────────────────── */}
-      {saveAsPromptOpen && (
-        <div className="modal-backdrop" onClick={() => setSaveAsPromptOpen(false)}>
-          <div className="modal-box" onClick={e => e.stopPropagation()}>
-            <div className="modal-title">Rename Project</div>
-            <input className="snap-input" style={{ width: '100%', boxSizing: 'border-box' }}
-              placeholder="Project name"
-              value={saveAsProjName}
-              onChange={e => setSaveAsProjName(e.target.value)}
-              autoFocus
-              onKeyDown={e => {
-                if (e.key === 'Enter') { saveProjectSlot(saveAsProjName, currentProjectId); setSaveAsPromptOpen(false) }
-                if (e.key === 'Escape') setSaveAsPromptOpen(false)
-              }} />
-            <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
-              <button className="small-btn" onClick={() => { saveProjectSlot(saveAsProjName, currentProjectId); setSaveAsPromptOpen(false) }}>Rename</button>
-              <button className="small-btn" onClick={() => setSaveAsPromptOpen(false)}>Cancel</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── Save Project As (duplicate) prompt ───────────────────────────────── */}
-      {dupProjPromptOpen && (
-        <div className="modal-backdrop" onClick={() => setDupProjPromptOpen(false)}>
-          <div className="modal-box" onClick={e => e.stopPropagation()}>
-            <div className="modal-title">Save Project As</div>
-            <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '4px 0 8px' }}>
-              Creates a new project with the current files, leaving the original project untouched.
-            </p>
-            <input className="snap-input" style={{ width: '100%', boxSizing: 'border-box' }}
-              placeholder="Project name"
-              value={dupProjName}
-              onChange={e => setDupProjName(e.target.value)}
-              autoFocus
-              onKeyDown={e => {
-                if (e.key === 'Enter') { saveProjectSlot(dupProjName, null); setDupProjPromptOpen(false) }
-                if (e.key === 'Escape') setDupProjPromptOpen(false)
-              }} />
-            <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
-              <button className="small-btn" onClick={() => { saveProjectSlot(dupProjName, null); setDupProjPromptOpen(false) }}>Save</button>
-              <button className="small-btn" onClick={() => setDupProjPromptOpen(false)}>Cancel</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── Save to Cloud (insert new) prompt ────────────────────────────────── */}
-      {saveToCloudPromptOpen && (
-        <div className="modal-backdrop" onClick={() => !cloudBusy && setSaveToCloudPromptOpen(false)}>
-          <div className="modal-box" onClick={e => e.stopPropagation()}>
-            <div className="modal-title">Save to Cloud</div>
-            <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '4px 0 8px' }}>
-              Creates a new cloud project saved to this account.
-            </p>
-            <input className="snap-input" style={{ width: '100%', boxSizing: 'border-box' }}
-              placeholder="Project name"
-              value={saveToCloudName}
-              onChange={e => setSaveToCloudName(e.target.value)}
-              autoFocus
-              onKeyDown={e => {
-                if (e.key === 'Enter') saveNewCloudProject(saveToCloudName)
-                if (e.key === 'Escape') setSaveToCloudPromptOpen(false)
-              }} />
-            <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
-              <button className="small-btn" disabled={cloudBusy} onClick={() => saveNewCloudProject(saveToCloudName)}>
-                {cloudBusy ? 'Saving…' : 'Save'}
-              </button>
-              <button className="small-btn" disabled={cloudBusy} onClick={() => setSaveToCloudPromptOpen(false)}>Cancel</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── Cloud update detected by the periodic freshness check ─────────── */}
-      {cloudUpdatePrompt && (
-        <div className="modal-backdrop" onClick={() => setCloudUpdatePrompt(null)}>
-          <div className="modal-box modal-box-wide" onClick={e => e.stopPropagation()}>
-            <div className="modal-title">Cloud project has a newer version</div>
-            <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '4px 0 8px' }}>
-              {cloudUpdatePrompt.updatedByEmail
-                ? `Updated by ${cloudUpdatePrompt.updatedByEmail}`
-                : 'Updated'}{cloudUpdatePrompt.updatedAt
-                ? ` at ${new Date(cloudUpdatePrompt.updatedAt).toLocaleString()}`
-                : ''} since you loaded it. How would you like to handle it?
-            </p>
-            {cloudUpdatePrompt.errors?.length ? (
-              <div style={{ margin: '4px 0 10px', padding: 8, borderRadius: 4,
-                            background: 'rgba(255, 100, 100, 0.12)',
-                            border: '1px solid rgba(255, 100, 100, 0.35)' }}>
-                <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
-                  Merge couldn't complete cleanly:
-                </div>
-                <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12 }}>
-                  {cloudUpdatePrompt.errors.map((e, i) => <li key={i}>{e}</li>)}
-                </ul>
-                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 6 }}>
-                  Pick another option below.
-                </div>
-              </div>
-            ) : null}
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              <button className="small-btn" onClick={resolveCloudReload}
-                title="Discard local edits and load the newer cloud version">
-                Reload cloud version
-              </button>
-              <button className="small-btn" onClick={resolveCloudOverwrite}
-                title="Push the local version to the cloud, replacing the new one">
-                Overwrite with local
-              </button>
-              <button className="small-btn" onClick={resolveCloudSaveAs}
-                title="Keep the newer cloud version and save the local one under a different name">
-                Save local as new…
-              </button>
-              <button className="small-btn" onClick={resolveCloudMerge}
-                title="Attempt to combine both versions (git-merge–style)">
-                Merge
-              </button>
-              <button className="small-btn" onClick={() => setCloudUpdatePrompt(null)}>
-                Dismiss
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {cloudSaveAsPromptOpen && (
-        <div className="modal-backdrop" onClick={() => setCloudSaveAsPromptOpen(false)}>
-          <div className="modal-box" onClick={e => e.stopPropagation()}>
-            <div className="modal-title">Save local version as new cloud project</div>
-            <input className="snap-input" style={{ width: '100%', marginTop: 4 }}
-              value={cloudSaveAsName} onChange={e => setCloudSaveAsName(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') commitCloudSaveAs() }}
-              placeholder="Project name"
-              autoFocus />
-            <div style={{ marginTop: 10, display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-              <button className="small-btn" onClick={() => setCloudSaveAsPromptOpen(false)}>Cancel</button>
-              <button className="small-btn" onClick={commitCloudSaveAs}
-                disabled={!cloudSaveAsName.trim()}>Save</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── Cloud save conflict (someone else saved since we loaded) ────────── */}
-      {cloudConflict && (
-        <div className="modal-backdrop" onClick={() => setCloudConflict(null)}>
-          <div className="modal-box" onClick={e => e.stopPropagation()}>
-            <div className="modal-title">Cloud project changed</div>
-            <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '4px 0 12px' }}>
-              Updated by {cloudConflict.updatedByEmail || 'someone else'} at{' '}
-              {new Date(cloudConflict.updatedAt).toLocaleString()}, since you loaded it.
-            </p>
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              <button className="small-btn" onClick={() => updateCurrentCloudProject(true)}>Overwrite their changes</button>
-              <button className="small-btn" onClick={() => { setCloudConflict(null); openCloudProjectById(currentCloudProject.id) }}>Reload their version</button>
-              <button className="small-btn" onClick={() => setCloudConflict(null)}>Cancel</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {authModalOpen && <AuthPanel onClose={() => setAuthModalOpen(false)} />}
-
-      {cloudProjectsModalOpen && (
-        <CloudProjectsModal
-          currentCloudProjectId={currentCloudProject?.id ?? null}
-          onOpen={openCloudProjectById}
-          onClose={() => setCloudProjectsModalOpen(false)}
-        />
-      )}
-
-      {/* ── Open Project modal ───────────────────────────────────────────────── */}
-      {projectsModalOpen && (() => {
-        const projects = loadSavedProjects()
-        const entries = Object.entries(projects).sort(([, a], [, b]) => b.savedAt - a.savedAt)
-        return (
-          <div className="modal-backdrop" onClick={() => setProjectsModalOpen(false)}>
-            <div className="modal-box modal-box-wide" onClick={e => e.stopPropagation()}>
-              <div className="modal-title">Switch Project</div>
-              {entries.length === 0
-                ? <p style={{ color: 'var(--text-muted)', fontSize: 12, margin: '8px 0' }}>No saved projects.</p>
-                : (
-                  <ul className="project-list">
-                    {entries.map(([id, proj]) => {
-                      const isRenaming = renamingProjId === id
-                      const commitRename = () => {
-                        renameProjectById(id, renameProjVal)
-                        setRenamingProjId(null)
-                      }
-                      return (
-                      <li key={id} className={`project-item ${id === currentProjectId ? 'project-item-current' : ''}`}>
-                        {isRenaming ? (
-                          <div className="project-item-name" style={{ display: 'flex', alignItems: 'center' }}>
-                            <input className="snap-input" style={{ flex: 1 }}
-                              value={renameProjVal}
-                              autoFocus
-                              onChange={e => setRenameProjVal(e.target.value)}
-                              onBlur={commitRename}
-                              onKeyDown={e => {
-                                if (e.key === 'Enter') commitRename()
-                                if (e.key === 'Escape') setRenamingProjId(null)
-                              }} />
-                          </div>
-                        ) : (
-                          <button className="project-item-name"
-                            onClick={() => openProjectById(id)}
-                            onDoubleClick={e => { e.stopPropagation(); setRenamingProjId(id); setRenameProjVal(proj.name) }}
-                            title="Click to open · double-click to rename">
-                            <span className="project-item-label">{proj.name}</span>
-                            <span className="project-item-date">{new Date(proj.savedAt).toLocaleString()}</span>
-                          </button>
-                        )}
-                        <button className="small-btn" title="Rename"
-                          onClick={() => { setRenamingProjId(id); setRenameProjVal(proj.name) }}>✎</button>
-                        <button className="small-btn project-item-del" title="Delete"
-                          onClick={() => deleteProjectById(id)}>✕</button>
-                      </li>
-                      )
-                    })}
-                  </ul>
-                )
-              }
-              <button className="small-btn" style={{ marginTop: 8 }} onClick={() => setProjectsModalOpen(false)}>Close</button>
-            </div>
-          </div>
-        )
-      })()}
-
       {/* ── Upload conflict (replace vs. append) prompt ─────────────────────── */}
       {uploadConflict && (() => {
         const label = uploadConflict.kind === 'elements' ? 'elements'
@@ -2879,7 +2200,6 @@ export default function App() {
               <button className="small-btn" onClick={() => { applyInferredCsv('elements', dropAmbiguous.file); setDropAmbiguous(null) }}>Elements</button>
               <button className="small-btn" onClick={() => { applyInferredCsv('paths', dropAmbiguous.file); setDropAmbiguous(null) }}>Beam Paths</button>
               <button className="small-btn" onClick={() => { applyInferredCsv('objects', dropAmbiguous.file); setDropAmbiguous(null) }}>Background Objects</button>
-              <button className="small-btn" onClick={() => { applyInferredCsv('propagations', dropAmbiguous.file); setDropAmbiguous(null) }}>Propagations</button>
               <button className="small-btn" onClick={() => setDropAmbiguous(null)}>Cancel</button>
             </div>
           </div>
@@ -3046,8 +2366,6 @@ export default function App() {
         onChange={e => loadBgFile(e.target.files[0])} />
       <input ref={settingsFileRef} type="file" accept=".json" style={{ display: 'none' }}
         onChange={e => loadSettingsFile(e.target.files[0])} />
-      <input ref={propFileRef} type="file" accept=".csv" style={{ display: 'none' }}
-        onChange={e => loadPropagationsFile(e.target.files[0])} />
       <input ref={zipFileRef} type="file" accept=".zip" style={{ display: 'none' }}
         onChange={e => handleProjectZipFile(e.target.files[0])} />
     </div>

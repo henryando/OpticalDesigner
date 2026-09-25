@@ -692,12 +692,7 @@ export default function Sidebar({
         <>
           <section className="sidebar-section">
             <div className="sidebar-section-header"><span>Appearance</span></div>
-            <label className="setting-toggle">
-              <input type="checkbox" checked={settings.darkMode}
-                onChange={e => set('darkMode', e.target.checked)} />
-              <span>Dark mode</span>
-            </label>
-            <div className="setting-row" style={{ marginTop: 6 }}>
+            <div className="setting-row">
               <span className="setting-label">UI font size</span>
               <div className="snap-presets">
                 {[10, 11, 12, 13, 14, 16].map(v => (
