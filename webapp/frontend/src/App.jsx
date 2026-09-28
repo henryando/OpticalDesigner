@@ -117,7 +117,7 @@ const SHORTCUT_HINTS = [
   'Double-click a beam edge on the canvas to enter its edit mode',
   'Double-click a path, layer, or group name in the sidebar to rename it',
   'View ▾ → Highlight orphaned elements shows what isn’t on a beam path',
-  'Transform ▾ rotates or flips the whole project in one undo step',
+  'Transform ▾ rotates, flips, or translates the whole project in one undo step',
 ]
 function HeaderShortcutTip() {
   const [idx, setIdx] = useState(() => Math.floor(Math.random() * SHORTCUT_HINTS.length))
@@ -238,6 +238,7 @@ export default function App() {
   const [zipNewName,    setZipNewName]    = useState('')
   const [zipSettingsPrompt, setZipSettingsPrompt] = useState(null) // { next }
   const [bulkEdit,      setBulkEdit]      = useState(null) // { enabled: {key:bool}, values: {key:val} }
+  const [translatePrompt, setTranslatePrompt] = useState(null) // { axis: 'x'|'y', value: string }
 
   const searchInputRef   = useRef(null)
   const cursorPosRef     = useRef({ x: 0, y: 0 })
@@ -683,6 +684,39 @@ export default function App() {
         // origin stays put — rotations pivot around it.
       }))
     }
+  }
+
+  // Shifts every element and background-object coordinate by `amount` along
+  // one axis. Background images and the table bounds are left alone — this
+  // is a plain nudge, not a rotate/flip that has to keep content inside the
+  // table box.
+  function translateProject(axis, amount) {
+    const d = Number(amount)
+    if (!Number.isFinite(d) || !d) return
+    pushHistory()
+    setElements(es => es.map(el => ({ ...el, [axis]: (Number(el[axis]) || 0) + d })))
+    setOverrides(ovs => {
+      const out = {}
+      for (const [label, ov] of Object.entries(ovs)) {
+        const nov = { ...ov }
+        if (nov[axis] != null) nov[axis] = (Number(nov[axis]) || 0) + d
+        out[label] = nov
+      }
+      return out
+    })
+    setBgGroups(groups => {
+      const out = {}
+      for (const [name, g] of Object.entries(groups)) {
+        out[name] = {
+          ...g,
+          edges: (g.edges ?? []).map(([x1, y1, x2, y2]) => axis === 'x'
+            ? [x1 + d, y1, x2 + d, y2]
+            : [x1, y1 + d, x2, y2 + d]),
+          labels: (g.labels ?? []).map(l => ({ ...l, [axis]: (Number(l[axis]) || 0) + d })),
+        }
+      }
+      return out
+    })
   }
 
   function startSidebarResize(e) {
@@ -1918,6 +1952,12 @@ export default function App() {
                 <div className="file-menu-label">Flip whole project</div>
                 <button className="file-menu-item" onClick={() => { transformProject('flipH'); setTransformMenuOpen(false) }}>↔ Flip horizontal</button>
                 <button className="file-menu-item" onClick={() => { transformProject('flipV'); setTransformMenuOpen(false) }}>↕ Flip vertical</button>
+                <div className="file-menu-sep" />
+                <div className="file-menu-label">Translate whole project</div>
+                <button className="file-menu-item"
+                  onClick={() => { setTranslatePrompt({ axis: 'x', value: '' }); setTransformMenuOpen(false) }}>→ Translate X…</button>
+                <button className="file-menu-item"
+                  onClick={() => { setTranslatePrompt({ axis: 'y', value: '' }); setTransformMenuOpen(false) }}>↓ Translate Y…</button>
               </div>
             )}
           </div>
@@ -2189,6 +2229,31 @@ export default function App() {
       })()}
 
       {/* ── Dropped CSV of unclear type ──────────────────────────────────────── */}
+      {translatePrompt && (
+        <div className="modal-backdrop" onClick={() => setTranslatePrompt(null)}>
+          <div className="modal-box" onClick={e => e.stopPropagation()}>
+            <div className="modal-title">Translate {translatePrompt.axis.toUpperCase()}</div>
+            <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '4px 0 8px' }}>
+              Shifts every element and background object along {translatePrompt.axis.toUpperCase()} by this amount (inches). Negative moves the other way.
+            </p>
+            <input className="snap-input" style={{ width: '100%', boxSizing: 'border-box' }}
+              type="number" step="0.5" placeholder="Distance (in)"
+              value={translatePrompt.value}
+              autoFocus
+              onChange={e => setTranslatePrompt(p => ({ ...p, value: e.target.value }))}
+              onKeyDown={e => {
+                if (e.key === 'Enter') { translateProject(translatePrompt.axis, translatePrompt.value); setTranslatePrompt(null) }
+                if (e.key === 'Escape') setTranslatePrompt(null)
+              }} />
+            <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+              <button className="small-btn"
+                onClick={() => { translateProject(translatePrompt.axis, translatePrompt.value); setTranslatePrompt(null) }}>Apply</button>
+              <button className="small-btn" onClick={() => setTranslatePrompt(null)}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {dropAmbiguous && (
         <div className="modal-backdrop" onClick={() => setDropAmbiguous(null)}>
           <div className="modal-box" onClick={e => e.stopPropagation()}>

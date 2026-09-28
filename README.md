@@ -177,7 +177,7 @@ Drag the divider between the canvas and the sidebar to resize the sidebar.
 
 **View ▾ → Highlight orphaned elements** is a toggle: elements that appear in at least one beam path fade back, and elements that don't are ringed in orange — useful for finding elements you forgot to wire into a beam or that got left behind after a rewire.
 
-**Transform ▾** applies global operations to the whole project: rotate 90° left/right (also swaps table length/width so the layout stays inside the same footprint) and flip horizontal/vertical. Each transform is one undo step.
+**Transform ▾** applies global operations to the whole project: rotate 90° left/right (also swaps table length/width so the layout stays inside the same footprint), flip horizontal/vertical, and translate X/Y (shifts elements and background objects by a distance you enter, in inches; background images and the table bounds are unaffected). Each transform is one undo step.
 
 <p align="center"><img src="docs/screenshots/transform-menu.gif" alt="Rotating the whole project" width="720" /></p>
 
