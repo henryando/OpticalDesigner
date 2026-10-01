@@ -599,12 +599,19 @@ const OpticalCanvas = forwardRef(function OpticalCanvas({
             x={sx} y={sy} width={sw} height={sh}
             opacity={img.opacity ?? 1}
             preserveAspectRatio="none"
+            draggable="false"
             // pointerEvents 'none' when not being edited so the image is inert
             // — clicks pass through to the elements/beams underneath and there
-            // is no drag cursor to suggest it moves.
+            // is no drag cursor to suggest it moves. user-drag: none stops the
+            // browser's own native image-drag gesture from hijacking our
+            // mousedown-based drag below — without it, dragging the image
+            // fires a real HTML5 drag instead, which the app's file-drop
+            // overlay mistakes for a file being dragged in.
             style={{
               pointerEvents: isEditing ? 'auto' : 'none',
               cursor: isEditing ? 'move' : 'default',
+              WebkitUserDrag: 'none',
+              userDrag: 'none',
             }}
             onMouseDown={isEditing ? e => onBgImageMouseDown(e, name, img) : undefined}
           />

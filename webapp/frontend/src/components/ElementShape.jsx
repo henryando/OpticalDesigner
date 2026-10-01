@@ -61,7 +61,12 @@ function SymbolImage({ def, selected, dark }) {
         href={def.href}
         x={-dW / 2} y={-dH / 2}
         width={dW} height={dH}
-        style={{ imageRendering: 'crisp-edges' }}
+        draggable="false"
+        // Stops the browser's native image-drag gesture from hijacking the
+        // element's own mousedown-based drag — without this, dragging an
+        // element starts a real HTML5 drag instead, which the app's
+        // file-drop overlay mistakes for a file being dragged in.
+        style={{ imageRendering: 'crisp-edges', WebkitUserDrag: 'none', userDrag: 'none' }}
       />
       {selected && (
         <rect
