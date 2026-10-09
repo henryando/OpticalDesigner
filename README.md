@@ -47,7 +47,7 @@ A dedicated panel on the **left** side of the screen — separate from the right
 
 **+ New** creates a project and switches to it right away; **Upload** loads a project `.zip` (same as **File ▾ → Upload Project…**). Click a project's name to open it; double-click (or right-click → **Rename**) to rename it in place. Right-click any project for the full menu: **Open, Rename, Duplicate, Download…, Move to Cloud…** / **Sync now** + **Move to Local…**, and **Delete…**. A **⇩** button downloads that one project as a `.zip`; **⇩ Download all** at the top of a section bundles every project shown into one `.zip`, each in its own folder.
 
-<p align="center"><img src="docs/screenshots/projects-tab.png" alt="The Projects panel" width="720" /></p>
+<p align="center"><img src="docs/screenshots/projects-tab.gif" alt="The Projects panel" width="720" /></p>
 
 #### Cloud storage (optional)
 
@@ -163,7 +163,7 @@ Each field is seeded with the value from the first selected element and starts u
 
 Project management (creating, switching, renaming, duplicating, downloading, and optional cloud sync) lives in the separate **Projects panel** on the left, not in this sidebar — see [The Projects panel](#the-projects-panel-local--cloud-storage) above.
 
-<p align="center"><img src="docs/screenshots/background-image.gif" alt="Placing a reference background image" width="720" /></p>
+<p align="center"><img src="docs/screenshots/background-images.gif" alt="Placing a reference background image" width="720" /></p>
 - **Settings** — UI font size, canvas scale, table size/origin, grid display (grid lines, table bounding box, coordinate axis labels, line width), beam-path overlap offset, beam direction arrows, move-snap spacing, element label toggles (O-number, type, annotation), **Send labels to border** (moves every element's label out to the nearest map border with a leader arrow pointing back to the element — drag a label to slide it along the border, and it right-aligns on the left border, left-aligns on the right, centres on the top/bottom; positions are stored per element as `labelPos` and persist with the project), PDF export font size and label Y offset (nudges labels closer to icons at export time if the smaller PDF font makes them feel too far), and the Optics Styles symbol library editor (add/rename/delete symbol mappings, upload custom SVGs, per-style label clearance for icons whose label would otherwise overlap the drawing).
 
 Drag the divider between the canvas and the sidebar to resize the sidebar.

@@ -26,9 +26,9 @@ This folder holds the images referenced from the main [README](../../README.md).
 | `editing-modes.gif`         | Cycling through Select → Box → Lasso → Move → Rotate on the toolbar.    |
 | `add-element.gif`           | Pressing N at the cursor, filling the Add Element form, committing.     |
 | `beam-path-edit.gif`        | Entering beam-path edit mode, clicking source → dest to add edges.      |
-| `background-image.gif`      | Uploading a reference image, dragging, resizing via the corner handle.  |
+| `background-images.gif`     | Uploading a reference image, dragging, resizing via the corner handle.  |
 | `transform-menu.gif`        | Opening Transform ▾, applying Rotate 90° right.                         |
-| `projects-tab.png`          | The Projects panel (left side, expanded): Local Storage and Cloud Storage stacked, a cloud-linked project's sync icon, and the right-click menu. |
+| `projects-tab.gif`          | The Projects panel (left side, expanded): Local Storage and Cloud Storage stacked, a cloud-linked project's sync icon, and the right-click menu. |
 | `pdf-export.png`            | An exported PDF opened alongside the app for comparison.                |
 
 Feel free to add more; just remember to reference them from the main README.
