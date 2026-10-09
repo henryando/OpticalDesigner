@@ -1,73 +1,51 @@
-# Optical Table Designer
+# OpticalDesigner
 
-A browser-based tool for visualising and editing optical layouts on a 2D table diagram. Elements, beam paths, and background objects are stored as plain CSV/JSON files that round-trip cleanly with the lab's existing spreadsheets.
+A browser-based tool for visualising and editing optical layouts on a 2D table diagram. Elements, beam paths, and background objects are stored as plain, human-readable CSV/JSON files. Comes pre-loaded with the excellent [ComponentLibrary](https://www.gwoptics.org/ComponentLibrary/) by Alexander Franzen. Available online free at [opticaldesigner.netlify.app](https://opticaldesigner.netlify.app), or host it yourself locally so you can add whatever features you like.
 
 <p align="center">
-  <img src="docs/screenshots/hero.png" alt="Optical Table Designer main view" width="820" />
+  <img src="docs/screenshots/hero.png" alt="OpticalDesigner main view" width="820" />
 </p>
 
-<!-- Screenshots and GIFs live in docs/screenshots/. See docs/screenshots/README.md
-     for filename conventions and quick capture tips. -->
+### Motivation 
+
+I built this tool to fill what I saw as a hole in the optical layout software market. 
+
+Tools like Adobe Illustrator or Inkscape offer extreme flexibility and what-you-see-is-what-you-get (WYSIWYG) user interfaces, but personally I find them difficult and frustrating to use for designing normal optics layouts. In some ways I want FEWER features and LESS flexibility, because mapping optical systems is mostly about doing the same few things over and over again, really fast. These tools also lack any ability to include metadata about different optics (part numbers, focal lengths, etc.) beyond manually placing annotations above a given element. 
+
+On the other hand, there are many excellent, specialized, code-based tools like [PyOpticalTable](https://jamesdpickering.com/pyopticaltable/), [Optiland](https://github.com/optiland/optiland), [PyOpticL](https://websites.umass.edu/rniffenegger/pyopticl-code-to-cad-optical-layout/), and [LaserCAD](https://www.mdpi.com/2076-3417/15/22/11893) which let you build optical setups with varying degrees of physical realism. However, to my knowledge no such tools have a drag-and-drop WYSIWYG UI in the style of Illustrator or Inkscape. To me a UI like this is essential. I should be clear that this project is not a replacement for a physically realistic CAD software or something with advanced ray tracing - however, since the whole project exports to CSV files, it COULD potentially be used to sketch out a design that is then processed into a script for one of these other projects. 
+
+So in that context, I made this tool, building off of [PyOpticalTable](https://jamesdpickering.com/pyopticaltable/) and using [ComponentLibrary](https://www.gwoptics.org/ComponentLibrary/) for the optical elements. My goals were to make a tool which:
+
+- Is easy, intuitive, and fast
+- Has as few features as possible
+- Looks good enough to make figures for a thesis _(paper-quality might be a stretch...but you can always export to PDF, then do the finishing touches in Illustrator!)_
+- Allows storage of optics metadata
+- Exports to CSV files for use in other programs
+
+To be clear, the entire project is vibe coded with Claude Code. I have no Javascript experience whatsoever. Nonetheless, I spent a stupid amount of time on it, so I hope it can be useful to someone. 
 
 ## Features
 
 - **Interactive canvas** — pan (drag), zoom (scroll), snap-to-grid placement
-- **Elements** — add, move, rotate, and soft-delete optical elements; O-number labels and type annotations rendered on canvas
+- **Elements** — add, move, rotate, and soft-delete optical elements; O-number labels and type annotations shown on canvas if toggled on; additional fields of metadata can be created as desired
 - **Beam paths** — draw and colour-code beam paths between elements; beams sharing the same pair of elements fan out automatically so none are hidden underneath another
 - **Background objects** — overlay structural geometry (mounts, chamber ports, etc.)
 - **Background images** — place reference photos or schematic screenshots beneath the layout with adjustable position, size, and opacity
-- **Optics styles** — regex-matched symbol definitions map element type strings to SVG icons; 71 built-in symbols included
+- **Optics styles** — regex-matched symbol definitions map element type strings to SVG icons; 71 built-in symbols included; define and modify styles as you like; upload your own optics SVGs if you ned something more niche
 - **Search** — Cmd/Ctrl+F highlights matching elements and centres the view
 - **Layers** — group elements onto named layers and show/hide them independently
 - **In Design toggle** — elements can be hidden from the diagram without being deleted; restored via the Elements tab
 - **Import** — upload individual CSV/JSON files or a whole project ZIP, by menu or drag-and-drop, with prompts to replace or append when the project already has data
 - **Export** — vector PDF export; individual CSV/JSON downloads; full project ZIP
 - **Projects panel** — a collapsible panel on the left lists every project, with Local Storage (everything in this browser) and Cloud Storage (optional) stacked so both are visible at once; switch, rename, duplicate, download or delete from the list, or right-click for the full set of commands
-- **Cloud projects (optional)** — click **Sign in** at the top of the Cloud Storage section to save/load that account's projects from the cloud, from any computer; a per-project sync icon shows whether it's in sync, ahead, behind, or out of sync, and moving a project between Local and Cloud storage is one click away
 - **Persistence** — layout state is saved to localStorage automatically
-
-## Using online
-
-The app is hosted at [opticaldesigner.netlify.app](https://opticaldesigner.netlify.app) — no install required, just open it in a browser.
-
-By default there is no server-side storage: your layout lives entirely in that browser's **localStorage**, scoped to that domain. This means:
-
-- Work persists automatically across page reloads and browser restarts, but only on the same browser/device you were using.
-- Clearing site data/cookies for the domain, using a different browser, or going incognito will lose unsaved work.
-- Nothing is uploaded anywhere — files never leave your machine unless you explicitly export/save them.
-
-Use **File ▾ → Download Project** (or `Cmd/Ctrl+D`) to export your layout to a `.zip` whenever you want a durable, shareable copy outside the browser, or use the Projects panel's per-project Download — see [The Projects panel](#the-projects-panel-local--cloud-storage) below.
-
-### The Projects panel: Local & Cloud Storage
-
-A dedicated panel on the **left** side of the screen — separate from the right-hand sidebar's Elements/Paths/Objects/Settings tabs — is where you create, switch between, and manage projects. Click the **«** button in its header (or the thin strip's **»** when collapsed) to hide it into the left wall of the screen and get the canvas space back; the collapsed/expanded state persists across reloads. Drag its right edge to resize it, same as the sidebar. Local Storage and Cloud Storage are stacked one above the other in the same scrolling pane, so both are visible at once — no tab switching, and each project appears in only one of the two:
-
-- **Local Storage** — every project in this browser that isn't linked to the cloud.
-- **Cloud Storage** (optional) — a **Sign in** button if you aren't logged in, which opens a login/sign-up window; once logged in, every project you've linked to the cloud (with a sync icon), plus any cloud project not yet pulled into this browser.
-
-**+ New** creates a project and switches to it right away; **Upload** loads a project `.zip` (same as **File ▾ → Upload Project…**). Click a project's name to open it; double-click (or right-click → **Rename**) to rename it in place. Right-click any project for the full menu: **Open, Rename, Duplicate, Download…, Move to Cloud…** / **Sync now** + **Move to Local…**, and **Delete…**. A **⇩** button downloads that one project as a `.zip`; **⇩ Download all** at the top of a section bundles every project shown into one `.zip`, each in its own folder.
-
-<p align="center"><img src="docs/screenshots/projects-tab.gif" alt="The Projects panel" width="720" /></p>
-
-#### Cloud storage (optional)
-
-If the deployment has cloud storage configured (see [Cloud setup](#cloud-setup-optional) below), click **Sign in** at the top of the Cloud Storage section — it opens a login window with a toggle to switch to creating a new account. Once logged in:
-
-- A cloud-linked project shows a small **sync icon** next to its name: ✓ in sync, ↑ ahead of the cloud (click to push), ↓ behind the cloud (click to pull), or **!** out of sync — both sides changed (click for **Keep mine**, **Use theirs**, or **Merge…**, which combines both sides field-by-field and flags anything it can't reconcile automatically).
-- **Move to Cloud…** (right-click a Local Storage project) saves it to your account under a name you choose.
-- **Move to Local…** removes the project from the cloud — **this deletes the shared copy**, so anyone else using this login loses access to it; the project itself stays right here, in this browser. You're warned before it happens.
-- A cloud project not yet pulled into this browser (saved from another computer, or by a teammate) shows up in Cloud Storage marked "not pulled" — click it, or right-click → **Pull to Local Storage**, to bring it in. Cloud projects that only hold Beam Propagation plots and no actual layout don't show up here — there'd be nothing to pull.
-- Cloud projects are **private to the account that created them** — Row Level Security on the backend means one account can never see or edit another account's cloud projects, even though every account uses the same public sign-up form.
-
-This is entirely additive: Local Storage, localStorage persistence, and CSV/JSON/ZIP import-export all keep working exactly the same whether or not you're logged in, and a deployment without cloud storage configured simply shows a note in place of the **Sign in** button.
-
-**To give a whole lab/team access to the same set of cloud projects**, don't create individual accounts — create one account and share those login credentials with everyone who should have access. Anyone with the credentials sees and edits that one account's project list; nobody else (including a stranger who signs up their own separate account on the public form) can see it. This also means you don't strictly need to disable public sign-up for data-privacy reasons — an uninvited signup just gets their own empty, useless project list — though you may still want to disable it under Supabase's Authentication → Settings to keep the user table tidy.
+- **Cloud projects (optional)** — click **Sign in** at the top of the Cloud Storage section to save/load that account's projects from the cloud, from any computer; a per-project sync icon shows whether it's in sync, ahead, behind, or out of sync, and moving a project between Local and Cloud storage is one click away
 
 ## User guide
 
 ### Editing modes
 
-The canvas toolbar (bottom-left) switches between modes. The current mode determines what a click or drag on the canvas does.
+The canvas toolbar (top left) switches between modes. The current mode determines what a click or drag on the canvas does.
 
 <p align="center"><img src="docs/screenshots/editing-modes.gif" alt="Cycling through editing modes" width="720" /></p>
 
@@ -76,13 +54,16 @@ The canvas toolbar (bottom-left) switches between modes. The current mode determ
 | **Select** (default) | `Escape`, or the ↖ toolbar button | Click an element to select it; click empty canvas to deselect; drag empty canvas to pan; drag an element to move it |
 | **Box Select** | `B`, or the ⬚ toolbar button | Drag a rectangle to select every element inside it |
 | **Lasso Select** | `L`, or the ⌾ toolbar button | Freehand-drag a lasso; elements inside the closed shape are selected |
-| **Move** | `M` (requires a selection), or the ✥ toolbar button, or simply drag a selected element | Drag selected element(s); snaps to the grid unless `Shift` is held; arrow keys nudge by one grid step |
+| **Move** | `M` (requires a selection), or the ✥ toolbar button, or simply drag a selected element | Drag selected element(s); snaps to the grid unless `Shift` is held; drag with `Shift + Ctrl` to move continuously in just one direction; arrow keys nudge by one grid step |
 | **Rotate** | `R` (requires a selection), or the ↻ toolbar button | Drag a selected element to rotate it about its own origin; snaps to 45° unless `Shift` is held; arrow keys rotate ±45° |
 
 Two additional modes are entered from the sidebar rather than the toolbar:
 
-- **Beam-path edit** — click the ✎ next to a path in the **Paths** tab. Click a source element, then a destination element, to add an edge between them; clicking an existing edge deletes it. Click the pending source again to cancel it. Exit with **Done** in the sidebar or `Escape`.
-- **Background-object edit** — click the ✎ next to a group in the **Objects** tab. Click two points to draw a line segment (snaps to grid; `Shift`-click for a free point); click an existing segment to delete it. Text labels: type into the **Text labels** input, then click the canvas to drop that text at the grid position (uses the group's color). Click a placed label in edit mode to delete it. Exit with **Done** in the sidebar or `Escape`.
+- **Beam-path edit** — click the ✎ next to a path in the **Paths** tab. Click a source element, then a destination element, to add an edge between them; clicking an existing edge deletes it. Click the pending source again to cancel it. Exit with **Done** in the sidebar or `Escape`. Beam-path edit mode can also be entered by double-clicking an existing beam.
+- **Background-object edit** — click the ✎ next to a group in the **Objects** tab. A canvas toolbar appears with two sub-modes:
+  - **↖ Select** (default) — click an edge or text label to select it (orange highlight); `Shift`-click to add/remove from the selection; drag any selected item to move the whole selection together (snaps to grid; hold `Shift` while dragging for a free position); arrow keys nudge the selection by one snap step; `Delete` (or the ✕ button) removes everything selected. `Escape` clears the sub-selection first, then exits the group.
+  - **+ New** — click two points to draw a line segment (snaps to grid; `Shift`-click for a free point). For text, type into the **Text labels** input in the sidebar, then click the canvas to drop that text at the grid position (uses the group's color); typing into that field automatically switches the toolbar to **New** so the click lands.
+  Exit the group with **Done** in the sidebar or `Escape`.
 
 <p align="center"><img src="docs/screenshots/beam-path-edit.gif" alt="Building a beam path" width="720" /></p>
 
@@ -152,21 +133,21 @@ Each field is seeded with the value from the first selected element and starts u
 
 ### Sidebar tabs
 
-<p align="center"><img src="docs/screenshots/sidebar-tabs.png" alt="Sidebar tabs" width="360" /></p>
+Drag the divider between the canvas and the sidebar to resize the sidebar.
 
-- **Paths** — list beam paths, toggle visibility, add/rename/delete a path, edit its edges.
 - **Elements** — add elements (by form, or press `N` at the cursor); manage layers (radio = active layer, checkbox = visibility); filter and multi-select from the full elements list; toggle In Design per element.
 
 <p align="center"><img src="docs/screenshots/add-element.gif" alt="Adding an element with N" width="720" /></p>
 
-- **Objects** — background-object groups (chamber walls, mounts, etc.), same add/rename/delete/edit-edges pattern as Paths, plus a stroke-width control per group. Below that, a **Background Images** section for placing reference photos or diagram screenshots as a semi-transparent layer under the design: click **+** to upload, drag on the canvas to move, and use the X/Y/W/α/θ inputs to set exact position, width (in inches, height auto-preserves aspect), opacity, and rotation (degrees, clockwise); Flip ↔ / Flip ↕ buttons mirror the image without changing its rotation. Images ride along in project ZIP saves.
+- **Paths** — list beam paths, toggle visibility, add/rename/delete a path, edit its edges, change beam path colors.
 
-Project management (creating, switching, renaming, duplicating, downloading, and optional cloud sync) lives in the separate **Projects panel** on the left, not in this sidebar — see [The Projects panel](#the-projects-panel-local--cloud-storage) above.
+- **Objects** — background-object groups (chamber walls, mounts, etc.), same add/rename/delete/edit-edges pattern as Paths, plus a stroke-width control per group. Entering edit mode on a group opens a canvas toolbar with two sub-modes: **↖ Select** (default — click an edge or text label to pick it, Shift+click to add/remove from the selection, drag the selection or use arrow keys to nudge it, Delete to remove — great for repositioning parts without accidental deletions) and **+ New** (two clicks to add an edge, or type into the sidebar's text field to drop a label at your next click). Below that, a **Background Images** section for placing reference photos or diagram screenshots as a semi-transparent layer under the design: click **+** to upload, drag on the canvas to move, and use the X/Y/W/α/θ inputs to set exact position, width (in inches, height auto-preserves aspect), opacity, and rotation (degrees, clockwise); Flip ↔ / Flip ↕ buttons mirror the image without changing its rotation. Images ride along in project ZIP saves.
 
 <p align="center"><img src="docs/screenshots/background-images.gif" alt="Placing a reference background image" width="720" /></p>
+
 - **Settings** — UI font size, canvas scale, table size/origin, grid display (grid lines, table bounding box, coordinate axis labels, line width), beam-path overlap offset, beam direction arrows, move-snap spacing, element label toggles (O-number, type, annotation), **Send labels to border** (moves every element's label out to the nearest map border with a leader arrow pointing back to the element — drag a label to slide it along the border, and it right-aligns on the left border, left-aligns on the right, centres on the top/bottom; positions are stored per element as `labelPos` and persist with the project), PDF export font size and label Y offset (nudges labels closer to icons at export time if the smaller PDF font makes them feel too far), and the Optics Styles symbol library editor (add/rename/delete symbol mappings, upload custom SVGs, per-style label clearance for icons whose label would otherwise overlap the drawing).
 
-Drag the divider between the canvas and the sidebar to resize the sidebar.
+
 
 ### Search
 
@@ -213,6 +194,44 @@ Uploading a whole project `.zip` first asks how to bring it in:
 #### Drag and drop
 
 You can **drag and drop** a `.csv`, `.json`, or `.zip` file anywhere onto the app to upload it — the file type is inferred from its name (e.g. `elements.csv`, `beam_paths.csv`, `background_objects.csv`) or, failing that, from its header row. If a dropped CSV can't be identified either way, a dialog asks you to pick Elements, Beam Paths, or Background Objects. Dropped `.zip` files go through the same project-upload prompts described above.
+
+## Using online
+
+The app is hosted at [opticaldesigner.netlify.app](https://opticaldesigner.netlify.app) — no install required, just open it in a browser.
+
+By default there is no server-side storage: your layout lives entirely in that browser's **localStorage**, scoped to that domain. This means:
+
+- Work persists automatically across page reloads and browser restarts, but only on the same browser/device you were using.
+- Clearing site data/cookies for the domain, using a different browser, or going incognito will lose unsaved work.
+- Nothing is uploaded anywhere — files never leave your machine unless you explicitly export/save them.
+
+Use **File ▾ → Download Project** (or `Cmd/Ctrl+D`) to export your layout to a `.zip` whenever you want a durable, shareable copy outside the browser, or use the Projects panel's per-project Download — see [The Projects panel](#the-projects-panel-local--cloud-storage) below.
+
+### The Projects panel: Local & Cloud Storage
+
+A dedicated panel on the **left** side of the screen — separate from the right-hand sidebar's Elements/Paths/Objects/Settings tabs — is where you create, switch between, and manage projects. Click the **«** button in its header (or the thin strip's **»** when collapsed) to hide it into the left wall of the screen and get the canvas space back; the collapsed/expanded state persists across reloads. Drag its right edge to resize it, same as the sidebar. Local Storage and Cloud Storage are stacked one above the other in the same scrolling pane, so both are visible at once — no tab switching, and each project appears in only one of the two:
+
+- **Local Storage** — every project in this browser that isn't linked to the cloud.
+- **Cloud Storage** (optional) — a **Sign in** button if you aren't logged in, which opens a login/sign-up window; once logged in, every project you've linked to the cloud (with a sync icon), plus any cloud project not yet pulled into this browser.
+
+**+ New** creates a project and switches to it right away; **Upload** loads a project `.zip` (same as **File ▾ → Upload Project…**). Click a project's name to open it; double-click (or right-click → **Rename**) to rename it in place. Right-click any project for the full menu: **Open, Rename, Duplicate, Download…, Move to Cloud…** / **Sync now** + **Move to Local…**, and **Delete…**. A **⇩** button downloads that one project as a `.zip`; **⇩ Download all** at the top of a section bundles every project shown into one `.zip`, each in its own folder.
+
+<p align="center"><img src="docs/screenshots/projects-tab.gif" alt="The Projects panel" width="720" /></p>
+
+#### Cloud storage (optional)
+
+If the deployment has cloud storage configured (see [Cloud setup](#cloud-setup-optional) below), click **Sign in** at the top of the Cloud Storage section — it opens a login window with a toggle to switch to creating a new account. Once logged in:
+
+- A cloud-linked project shows a small **sync icon** next to its name: ✓ in sync, ↑ ahead of the cloud (click to push), ↓ behind the cloud (click to pull), or **!** out of sync — both sides changed (click for **Keep mine**, **Use theirs**, or **Merge…**, which combines both sides field-by-field and flags anything it can't reconcile automatically).
+- **Move to Cloud…** (right-click a Local Storage project) saves it to your account under a name you choose.
+- **Move to Local…** removes the project from the cloud — **this deletes the shared copy**, so anyone else using this login loses access to it; the project itself stays right here, in this browser. You're warned before it happens.
+- A cloud project not yet pulled into this browser (saved from another computer, or by a teammate) shows up in Cloud Storage marked "not pulled" — click it, or right-click → **Pull to Local Storage**, to bring it in. Cloud projects that only hold Beam Propagation plots and no actual layout don't show up here — there'd be nothing to pull.
+- Cloud projects are **private to the account that created them** — Row Level Security on the backend means one account can never see or edit another account's cloud projects, even though every account uses the same public sign-up form.
+
+This is entirely additive: Local Storage, localStorage persistence, and CSV/JSON/ZIP import-export all keep working exactly the same whether or not you're logged in, and a deployment without cloud storage configured simply shows a note in place of the **Sign in** button.
+
+**To give a whole lab/team access to the same set of cloud projects**, don't create individual accounts — create one account and share those login credentials with everyone who should have access. Anyone with the credentials sees and edits that one account's project list; nobody else (including a stranger who signs up their own separate account on the public form) can see it. This also means you don't strictly need to disable public sign-up for data-privacy reasons — an uninvited signup just gets their own empty, useless project list — though you may still want to disable it under Supabase's Authentication → Settings to keep the user table tidy.
+
 
 ## File formats
 
