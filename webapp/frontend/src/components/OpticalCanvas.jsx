@@ -1052,9 +1052,14 @@ const OpticalCanvas = forwardRef(function OpticalCanvas({
         </g>
       </svg>
 
-      {/* Canvas toolbar */}
+      {/* Canvas toolbar — stop mouse events from bubbling into the wrapper
+          div, which otherwise treats them as a background pan+click and
+          clears the selection on mouseup. */}
       {!editingPath && !editingBgGroup && (
-        <div className="edit-toolbar">
+        <div className="edit-toolbar"
+          onMouseDown={e => e.stopPropagation()}
+          onMouseUp={e => e.stopPropagation()}
+          onClick={e => e.stopPropagation()}>
           <button className={`tb-btn ${mode === 'select' ? 'active' : ''}`}
             onClick={() => setMode('select')} title="Select (Esc)">↖</button>
           <button className={`tb-btn ${mode === 'boxSelect' ? 'active' : ''}`}

@@ -18,7 +18,7 @@ export default function Sidebar({
   beamPaths, visiblePaths, onToggle, onToggleAll,
   onAddPath, onDeletePath, onSetPathColor, onRenamePath,
   // Beam path editing
-  selectedLabels, selectedElement, allMetaKeys, onUpdateElement, onRenameElement,
+  selectedLabels, selectedElement, allMetaKeys, onUpdateElement, onRenameElement, onAddMetaColumn,
   editingPath, onSetEditingPath, onDeleteEdge,
   // Background objects
   bgGroups, visibleBg, onToggleBg, onToggleAllBg,
@@ -991,6 +991,11 @@ export default function Sidebar({
                 ))}
               </tbody>
             </table>
+            {onAddMetaColumn && (
+              <NewFieldButton
+                existingKeys={allMetaKeys ?? []}
+                onAdd={onAddMetaColumn} />
+            )}
           </div>
         </section>
       )}
@@ -1003,6 +1008,49 @@ export default function Sidebar({
         </section>
       )}
     </aside>
+  )
+}
+
+// ── "+ New field" button in the Selected Element panel ───────────────────────
+// Click reveals an inline input; Enter commits (adds the column to every
+// element), Escape cancels. Blocks duplicates and core column names via the
+// parent's onAdd (which no-ops silently in those cases), but also surfaces
+// a local hint so the user understands why nothing happened.
+function NewFieldButton({ existingKeys, onAdd }) {
+  const [editing, setEditing] = useState(false)
+  const [val, setVal] = useState('')
+  const [err, setErr] = useState('')
+  const CORE = new Set(['label', 'type', 'x', 'y', 'orientation', 'in_design', 'layer'])
+  function commit() {
+    const trimmed = val.trim()
+    if (!trimmed) { setEditing(false); setVal(''); setErr(''); return }
+    if (CORE.has(trimmed.toLowerCase())) { setErr(`"${trimmed}" is a reserved core field`); return }
+    if (existingKeys.includes(trimmed)) { setErr(`"${trimmed}" already exists`); return }
+    onAdd(trimmed)
+    setEditing(false); setVal(''); setErr('')
+  }
+  function cancel() { setEditing(false); setVal(''); setErr('') }
+  if (!editing) {
+    return (
+      <button className="small-btn" style={{ marginTop: 6 }}
+        title="Add a new column to the Elements CSV (shows up as a new field on every element)"
+        onClick={() => setEditing(true)}>+ New field</button>
+    )
+  }
+  return (
+    <div style={{ display: 'flex', gap: 4, alignItems: 'center', marginTop: 6, flexWrap: 'wrap' }}>
+      <input autoFocus className="snap-input" placeholder="field name"
+        style={{ width: 140 }}
+        value={val}
+        onChange={e => { setVal(e.target.value); if (err) setErr('') }}
+        onKeyDown={e => {
+          if (e.key === 'Enter') commit()
+          else if (e.key === 'Escape') cancel()
+        }} />
+      <button className="small-btn" onClick={commit}>Add</button>
+      <button className="small-btn" onClick={cancel}>Cancel</button>
+      {err && <span style={{ color: 'var(--danger, #d66)', fontSize: 11, width: '100%' }}>{err}</span>}
+    </div>
   )
 }
 

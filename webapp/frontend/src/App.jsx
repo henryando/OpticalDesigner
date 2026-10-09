@@ -2101,6 +2101,7 @@ export default function App() {
           allMetaKeys={allMetaKeys}
           onUpdateElement={updateElementField}
           onRenameElement={renameElement}
+          onAddMetaColumn={addMetaColumn}
           editingPath={editingPath}
           onSetEditingPath={setEditingPath}
           onDeleteEdge={deleteEdge}
