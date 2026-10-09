@@ -512,7 +512,7 @@ const ProjectsTab = forwardRef(function ProjectsTab({
           <button className="small-btn"
             onClick={() => { startNewProject(`Untitled ${localIds.length + 1}`); refreshProjects() }}>+ New</button>
           <button className="small-btn" onClick={onUploadProjectClick}
-            title="Load an Optical Table Designer project .zip">Upload</button>
+            title="Load an OpticalDesigner project .zip">Upload</button>
           {localIds.length > 0 && (
             <button className="small-btn" style={{ flex: 1 }} onClick={() => downloadMany(localIds)}>⇩ Download all</button>
           )}

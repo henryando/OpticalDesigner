@@ -1914,7 +1914,7 @@ export default function App() {
         </div>
       )}
       <header className="app-header">
-        <span className="app-title">👁️ Optical Table Designer</span>
+        <span className="app-title">👁️ OpticalDesigner</span>
         {currentProjectName && <span className="project-name-badge">{currentProjectName}</span>}
         <HeaderShortcutTip />
         <div className="header-controls">
@@ -2062,8 +2062,10 @@ export default function App() {
           editingBgGroup={editingBgGroup}
           onAddBgEdge={addBgEdge}
           onDeleteBgEdge={deleteBgEdge}
+          onUpdateBgEdge={updateBgEdge}
           onAddBgLabel={addBgLabel}
           onDeleteBgLabel={deleteBgLabel}
+          onUpdateBgLabel={updateBgLabel}
           pendingBgLabelText={pendingBgLabelText}
           onSetPendingBgLabelText={setPendingBgLabelText}
           onSetEditingBgGroup={setEditingBgGroup}

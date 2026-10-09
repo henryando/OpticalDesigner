@@ -19,8 +19,8 @@ const OpticalCanvas = forwardRef(function OpticalCanvas({
   selectedLabels, selectedElement,
   onSelectLabel, onStartEdit, onUpdateEdit, onDeleteSelected, onHardDeleteSelected,
   editingPath, onAddEdge, onDeleteEdge, onSetEditingPath, onSelectPath,
-  editingBgGroup, onAddBgEdge, onDeleteBgEdge, onSetEditingBgGroup,
-  onAddBgLabel, onDeleteBgLabel,
+  editingBgGroup, onAddBgEdge, onDeleteBgEdge, onUpdateBgEdge, onSetEditingBgGroup,
+  onAddBgLabel, onDeleteBgLabel, onUpdateBgLabel,
   pendingBgLabelText, onSetPendingBgLabelText,
   bgImages, onUpdateBgImage, onStartBgImageEdit,
   editingBgImage, onSetEditingBgImage,
@@ -36,6 +36,14 @@ const OpticalCanvas = forwardRef(function OpticalCanvas({
   const [mode, setMode] = useState('select')
   const [pendingSrc,   setPendingSrc]   = useState(null)
   const [pendingBgPt,  setPendingBgPt]  = useState(null)
+  // Background-objects edit sub-mode: 'select' (click to pick parts, drag
+  // or arrow keys to move, Delete to remove) vs 'new' (click to create
+  // new edges / drop text). Default 'select' so a click near an existing
+  // edge no longer silently deletes it.
+  const [bgEditMode, setBgEditMode] = useState('select')
+  // Selected background items inside the active bg group. Each id is
+  // "edge:<index>" or "label:<index>" relative to the active editingBgGroup.
+  const [bgSelection, setBgSelection] = useState(() => new Set())
   const [selectionDrag, setSelectionDrag] = useState(null)
   // selectionDrag: null | { type:'box', x1,y1,x2,y2, additive }
   //                      | { type:'lasso', points:[{x,y}], additive }
@@ -109,7 +117,16 @@ const OpticalCanvas = forwardRef(function OpticalCanvas({
   }
 
   useEffect(() => { setPendingSrc(null) }, [editingPath])
-  useEffect(() => { setPendingBgPt(null) }, [editingBgGroup])
+  useEffect(() => {
+    setPendingBgPt(null)
+    setBgSelection(new Set())
+    setBgEditMode('select')
+  }, [editingBgGroup])
+  // When the sidebar queues a text label to drop, auto-switch to the "new"
+  // sub-mode so the canvas click actually places it.
+  useEffect(() => {
+    if (pendingBgLabelText && editingBgGroup) setBgEditMode('new')
+  }, [pendingBgLabelText, editingBgGroup])
   useEffect(() => {
     if (!selectedLabels?.size)
       setMode(m => (m === 'boxSelect' || m === 'lasso') ? m : 'select')
@@ -125,12 +142,58 @@ const OpticalCanvas = forwardRef(function OpticalCanvas({
         e.preventDefault()
         if (pendingBgLabelText) { onSetPendingBgLabelText?.(null); return }
         if (pendingBgPt)    { setPendingBgPt(null); return }
+        if (bgSelection.size) { setBgSelection(new Set()); return }
         if (pendingSrc)     { setPendingSrc(null); return }
         if (editingBgGroup) { onSetEditingBgGroup(null); return }
         if (editingPath)    { onSetEditingPath(null); return }
         if (editingBgImage) { onSetEditingBgImage?.(null); return }
         if (mode !== 'select') { setMode('select'); return }
         if (selectedLabels?.size) { onSelectLabel(null, false); return }
+      }
+
+      // Background-objects edit mode handles its own selection + nudges +
+      // deletion, independently from the main-canvas selection shortcuts.
+      if (editingBgGroup && bgSelection.size) {
+        if (e.key === 'Delete' || e.key === 'Backspace') {
+          e.preventDefault()
+          // Delete highest indices first so each remove doesn't shift the
+          // indices of items still queued for removal.
+          const edgeIdx  = []
+          const labelIdx = []
+          for (const sid of bgSelection) {
+            const [kind, idxStr] = sid.split(':')
+            const n = Number(idxStr)
+            if (kind === 'edge')  edgeIdx.push(n)
+            if (kind === 'label') labelIdx.push(n)
+          }
+          edgeIdx.sort((a, b) => b - a).forEach(i => onDeleteBgEdge(editingBgGroup, i))
+          labelIdx.sort((a, b) => b - a).forEach(i => onDeleteBgLabel(editingBgGroup, i))
+          setBgSelection(new Set())
+          return
+        }
+        if (e.key.startsWith('Arrow')) {
+          e.preventDefault()
+          const s = settings.snapSpacing
+          const dx = e.key === 'ArrowLeft' ? -s : e.key === 'ArrowRight' ? s : 0
+          const dy = e.key === 'ArrowUp'   ?  s : e.key === 'ArrowDown'  ? -s : 0
+          const grp = bgGroups?.[editingBgGroup]
+          if (!grp) return
+          for (const sid of bgSelection) {
+            const [kind, idxStr] = sid.split(':')
+            const idx = Number(idxStr)
+            if (kind === 'edge') {
+              const edge = grp.edges?.[idx]
+              if (edge) onUpdateBgEdge(editingBgGroup, idx, {
+                x1: edge[0] + dx, y1: edge[1] + dy,
+                x2: edge[2] + dx, y2: edge[3] + dy,
+              })
+            } else if (kind === 'label') {
+              const lab = grp.labels?.[idx]
+              if (lab) onUpdateBgLabel(editingBgGroup, idx, { x: lab.x + dx, y: lab.y + dy })
+            }
+          }
+          return
+        }
       }
 
       if (e.key === 'b' || e.key === 'B') { e.preventDefault(); setMode('boxSelect'); return }
@@ -167,10 +230,11 @@ const OpticalCanvas = forwardRef(function OpticalCanvas({
     document.addEventListener('keydown', onKeyDown)
     return () => document.removeEventListener('keydown', onKeyDown)
   }, [selectedLabels, selectedElement, elements, mode, editingPath, editingBgGroup,
-      editingBgImage,
+      editingBgImage, bgSelection, bgGroups,
       pendingSrc, pendingBgPt, settings, onDeleteSelected, onHardDeleteSelected,
       onStartEdit, onUpdateEdit, onSetEditingPath, onSetEditingBgGroup,
-      onSetEditingBgImage])
+      onSetEditingBgImage, onDeleteBgEdge, onDeleteBgLabel,
+      onUpdateBgEdge, onUpdateBgLabel])
 
   // ── Element click / drag start ────────────────────────────────────────────
   function onElementMouseDown(e, el) {
@@ -236,22 +300,31 @@ const OpticalCanvas = forwardRef(function OpticalCanvas({
     if (e.button !== 0 || drag.current) return
 
     if (editingBgGroup) {
-      const svgPos = screenToSVG(e.clientX, e.clientY)
-      const { x, y } = svgToPhys(svgPos, settings.snapSpacing, e.shiftKey)
-      // Text-placement mode: drop the pending text as a label instead of
-      // starting/finishing an edge.
-      if (pendingBgLabelText) {
-        onAddBgLabel(editingBgGroup, x, y, pendingBgLabelText)
-        onSetPendingBgLabelText?.(null)
+      // 'new' sub-mode: click builds edges (two clicks) or drops a pending
+      // label. 'select' sub-mode: background click clears the sub-selection
+      // and falls through to the panning behaviour below so panning still
+      // works inside bg edit.
+      if (bgEditMode === 'new') {
+        const svgPos = screenToSVG(e.clientX, e.clientY)
+        const { x, y } = svgToPhys(svgPos, settings.snapSpacing, e.shiftKey)
+        if (pendingBgLabelText) {
+          onAddBgLabel(editingBgGroup, x, y, pendingBgLabelText)
+          onSetPendingBgLabelText?.(null)
+          return
+        }
+        if (!pendingBgPt) {
+          setPendingBgPt({ x, y })
+        } else {
+          onAddBgEdge(editingBgGroup, pendingBgPt.x, pendingBgPt.y, x, y)
+          setPendingBgPt(null)
+        }
         return
       }
-      if (!pendingBgPt) {
-        setPendingBgPt({ x, y })
-      } else {
-        onAddBgEdge(editingBgGroup, pendingBgPt.x, pendingBgPt.y, x, y)
-        setPendingBgPt(null)
-      }
-      return
+      // 'select' sub-mode: a background click clears the sub-selection
+      // (unless Shift is held so the user can begin an additive marquee
+      // in the future — for now just clear).
+      if (!e.shiftKey && bgSelection.size) setBgSelection(new Set())
+      // Fall through so the user can still pan with a background drag.
     }
 
     if (mode === 'boxSelect' || mode === 'lasso') {
@@ -344,6 +417,30 @@ const OpticalCanvas = forwardRef(function OpticalCanvas({
         }
         onUpdateEdit(label, { x: newX, y: newY })
       })
+      return
+    }
+
+    if (type === 'bgItemMove') {
+      const svgPos = screenToSVG(e.clientX, e.clientY)
+      const dxPhys =  (svgPos.x - drag.current.startSVG.x) / SCALE
+      const dyPhys = -(svgPos.y - drag.current.startSVG.y) / SCALE
+      // Snap the DELTA so grouped items maintain their relative offsets.
+      let dx = dxPhys, dy = dyPhys
+      if (!e.shiftKey) {
+        const s = settings.snapSpacing
+        dx = Math.round(dx / s) * s
+        dy = Math.round(dy / s) * s
+      }
+      if (dx !== 0 || dy !== 0) drag.current.hasMoved = true
+      for (const p of drag.current.startPositions) {
+        if (p.kind === 'edge') {
+          onUpdateBgEdge(editingBgGroup, p.idx, {
+            x1: p.x1 + dx, y1: p.y1 + dy, x2: p.x2 + dx, y2: p.y2 + dy,
+          })
+        } else if (p.kind === 'label') {
+          onUpdateBgLabel(editingBgGroup, p.idx, { x: p.x + dx, y: p.y + dy })
+        }
+      }
       return
     }
 
@@ -541,6 +638,48 @@ const OpticalCanvas = forwardRef(function OpticalCanvas({
     return { nx: -dy / len, ny: dx / len }
   }
 
+  // ── Background-object select-mode interactions ────────────────────────────
+  // Click an edge/label (in bg select sub-mode): toggle its selection when
+  // Shift is held; otherwise replace the selection with just this item (if
+  // the user then drags, every selected item moves together).
+  function onBgItemMouseDown(e, groupName, id) {
+    if (e.button !== 0) return
+    if (groupName !== editingBgGroup) return
+    e.stopPropagation()
+    let nextSel
+    if (e.shiftKey) {
+      nextSel = new Set(bgSelection)
+      if (nextSel.has(id)) nextSel.delete(id); else nextSel.add(id)
+    } else if (bgSelection.has(id)) {
+      nextSel = bgSelection       // starting a drag of the current selection
+    } else {
+      nextSel = new Set([id])
+    }
+    setBgSelection(nextSel)
+    // Snapshot the start positions of every selected item so the drag can
+    // apply a cumulative delta without reading stale state each frame.
+    const grp = bgGroups?.[editingBgGroup]
+    if (!grp) return
+    const startPositions = []
+    for (const sid of nextSel) {
+      const [kind, idxStr] = sid.split(':')
+      const idx = Number(idxStr)
+      if (kind === 'edge') {
+        const edge = grp.edges?.[idx]
+        if (edge) startPositions.push({ kind, idx, x1: edge[0], y1: edge[1], x2: edge[2], y2: edge[3] })
+      } else if (kind === 'label') {
+        const lab = grp.labels?.[idx]
+        if (lab) startPositions.push({ kind, idx, x: lab.x, y: lab.y })
+      }
+    }
+    drag.current = {
+      type: 'bgItemMove',
+      startSVG: screenToSVG(e.clientX, e.clientY),
+      startPositions,
+      hasMoved: false,
+    }
+  }
+
   // ── Background image rendering ────────────────────────────────────────────
   function onBgImageMouseDown(e, name, img) {
     if (e.button !== 0) return
@@ -645,16 +784,19 @@ const OpticalCanvas = forwardRef(function OpticalCanvas({
       const isEditing = name === editingBgGroup
       const opacity   = editingBgGroup && !isEditing ? 0.2 : 0.7
       edges.forEach(([x1, y1, x2, y2], ei) => {
+        const id = `edge:${ei}`
+        const isSelected = isEditing && bgEditMode === 'select' && bgSelection.has(id)
         out.push(
           <g key={`bg-${name}-${ei}`}>
             <line x1={px(x1)} y1={py(y1)} x2={px(x2)} y2={py(y2)}
-              stroke={color} strokeWidth={isEditing ? strokeWidth * 1.5 : strokeWidth}
+              stroke={isSelected ? '#e0b040' : color}
+              strokeWidth={isEditing ? strokeWidth * 1.5 : strokeWidth}
               strokeOpacity={opacity} strokeLinecap="round" />
-            {isEditing && (
+            {isEditing && bgEditMode === 'select' && (
               <line x1={px(x1)} y1={py(y1)} x2={px(x2)} y2={py(y2)}
                 stroke="transparent" strokeWidth={14}
-                style={{ cursor: 'pointer' }}
-                onClick={ev => { ev.stopPropagation(); onDeleteBgEdge(name, ei) }}
+                style={{ cursor: 'move' }}
+                onMouseDown={ev => onBgItemMouseDown(ev, name, id)}
               />
             )}
           </g>
@@ -668,16 +810,19 @@ const OpticalCanvas = forwardRef(function OpticalCanvas({
       const opacity   = editingBgGroup && !isEditing ? 0.2 : 0.9
       labels.forEach((lab, li) => {
         const fontSize = lab.fontSize ?? 4
+        const id = `label:${li}`
+        const inSelectMode = isEditing && bgEditMode === 'select'
+        const isSelected   = inSelectMode && bgSelection.has(id)
         out.push(
           <g key={`bg-lab-${name}-${li}`}>
             <text x={px(lab.x)} y={py(lab.y)}
-              fill={color} fillOpacity={opacity}
+              fill={isSelected ? '#e0b040' : color} fillOpacity={opacity}
               textAnchor="middle" dominantBaseline="middle"
               fontSize={fontSize}
-              style={{ pointerEvents: isEditing ? 'auto' : 'none',
-                       cursor: isEditing ? 'pointer' : 'default',
+              style={{ pointerEvents: inSelectMode ? 'auto' : 'none',
+                       cursor: inSelectMode ? 'move' : 'default',
                        userSelect: 'none' }}
-              onClick={isEditing ? (ev => { ev.stopPropagation(); onDeleteBgLabel(name, li) }) : undefined}>
+              onMouseDown={inSelectMode ? (ev => onBgItemMouseDown(ev, name, id)) : undefined}>
               {lab.text}
             </text>
           </g>
@@ -1088,12 +1233,50 @@ const OpticalCanvas = forwardRef(function OpticalCanvas({
         </div>
       )}
 
+      {/* Bg edit sub-mode toolbar — Select vs New. Stops mouse events from
+          bubbling into the wrapper div so clicking a button never clears
+          the sub-selection or starts a background pan. */}
+      {editingBgGroup && (
+        <div className="edit-toolbar"
+          onMouseDown={e => e.stopPropagation()}
+          onMouseUp={e => e.stopPropagation()}
+          onClick={e => e.stopPropagation()}>
+          <button className={`tb-btn ${bgEditMode === 'select' ? 'active' : ''}`}
+            onClick={() => { setBgEditMode('select'); setPendingBgPt(null); onSetPendingBgLabelText?.(null) }}
+            title="Select mode · click to pick parts, drag or arrow keys to move, Delete to remove">↖ Select</button>
+          <button className={`tb-btn ${bgEditMode === 'new' ? 'active' : ''}`}
+            onClick={() => { setBgEditMode('new'); setBgSelection(new Set()) }}
+            title="New mode · click twice to add an edge, or type in the sidebar to drop a label">+ New</button>
+          {bgEditMode === 'select' && bgSelection.size > 0 && <>
+            <div className="tb-sep" />
+            <button className="tb-btn tb-delete"
+              onClick={() => {
+                const edgeIdx = [], labelIdx = []
+                for (const sid of bgSelection) {
+                  const [kind, idxStr] = sid.split(':')
+                  const n = Number(idxStr)
+                  if (kind === 'edge')  edgeIdx.push(n)
+                  if (kind === 'label') labelIdx.push(n)
+                }
+                edgeIdx.sort((a, b) => b - a).forEach(i => onDeleteBgEdge(editingBgGroup, i))
+                labelIdx.sort((a, b) => b - a).forEach(i => onDeleteBgLabel(editingBgGroup, i))
+                setBgSelection(new Set())
+              }}
+              title={`Delete ${bgSelection.size} selected`}>✕</button>
+          </>}
+        </div>
+      )}
+
       {/* Bg edit hint */}
       {editingBgGroup && (
         <div className="mode-hint">
-          {pendingBgPt
-            ? `First point set — click second point (Shift = free)`
-            : 'Click canvas or element for first point · click edge to delete · Esc to exit'}
+          {bgEditMode === 'new'
+            ? (pendingBgPt
+                ? `First point set — click second point (Shift = free)`
+                : 'New mode: click canvas or element for first point · Esc to exit')
+            : (bgSelection.size
+                ? `${bgSelection.size} selected — drag or arrow keys to move · Delete to remove · Esc to clear`
+                : 'Select mode: click an edge or label to select · Shift+click to add · Esc to exit')}
         </div>
       )}
 
