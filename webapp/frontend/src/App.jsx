@@ -104,7 +104,8 @@ const SHORTCUT_HINTS = [
   'Press D to quick-duplicate the last element you added',
   'Press P to bulk-edit properties across a selection',
   'Cmd/Ctrl+F opens search; matches highlight and centre on the canvas',
-  'Cmd/Ctrl+S downloads the project as a .zip',
+  'Cmd/Ctrl+S syncs the current project to the cloud (if cloud-linked)',
+  'Cmd/Ctrl+D downloads the project as a .zip',
   'Cmd/Ctrl+Z undoes the last change',
   'Press B / L for Box or Lasso Select; M for Move; R for Rotate',
   'Escape backs out one step: pending click, edit mode, then selection',
@@ -243,6 +244,7 @@ export default function App() {
   const searchInputRef   = useRef(null)
   const cursorPosRef     = useRef({ x: 0, y: 0 })
   const canvasRef        = useRef(null)
+  const projectsTabRef   = useRef(null)
   const elemFileRef      = useRef(null)
   const pathFileRef      = useRef(null)
   const bgFileRef        = useRef(null)
@@ -378,6 +380,11 @@ export default function App() {
       }
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
         e.preventDefault()
+        projectsTabRef.current?.syncCurrent()
+        return
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'd') {
+        e.preventDefault()
         saveProject()
         return
       }
@@ -476,14 +483,25 @@ export default function App() {
     setSelectedLabels(new Set())
   }
 
-  // Hard delete: remove from elements array entirely
+  // Hard delete: remove from elements array entirely, and strip any beam-
+  // path edges that reference the deleted labels — leaving them in would
+  // produce dangling edges pointing at nonexistent nodes.
   function hardDeleteSelected() {
     if (!selectedLabels.size) return
     pushHistory()
-    setElements(els => els.filter(el => !selectedLabels.has(el.label)))
+    const deleted = selectedLabels
+    setElements(els => els.filter(el => !deleted.has(el.label)))
     setOverrides(ov => {
       const next = { ...ov }
-      selectedLabels.forEach(label => { delete next[label] })
+      deleted.forEach(label => { delete next[label] })
+      return next
+    })
+    setBeamPaths(bp => {
+      const next = {}
+      for (const [name, path] of Object.entries(bp)) {
+        const edges = (path.edges ?? []).filter(([s, d]) => !deleted.has(s) && !deleted.has(d))
+        next[name] = { ...path, edges }
+      }
       return next
     })
     setSelectedLabels(new Set())
@@ -2007,6 +2025,7 @@ export default function App() {
           </div>
         )}
         <ProjectsTab
+          ref={projectsTabRef}
           currentProjectId={currentProjectId}
           currentProjectName={currentProjectName}
           captureProjectState={captureProjectState}

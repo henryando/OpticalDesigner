@@ -36,7 +36,7 @@ By default there is no server-side storage: your layout lives entirely in that b
 - Clearing site data/cookies for the domain, using a different browser, or going incognito will lose unsaved work.
 - Nothing is uploaded anywhere — files never leave your machine unless you explicitly export/save them.
 
-Use **File ▾ → Download Project** (or `Cmd/Ctrl+S`) to export your layout to a `.zip` whenever you want a durable, shareable copy outside the browser, or use the Projects panel's per-project Download — see [The Projects panel](#the-projects-panel-local--cloud-storage) below.
+Use **File ▾ → Download Project** (or `Cmd/Ctrl+D`) to export your layout to a `.zip` whenever you want a durable, shareable copy outside the browser, or use the Projects panel's per-project Download — see [The Projects panel](#the-projects-panel-local--cloud-storage) below.
 
 ### The Projects panel: Local & Cloud Storage
 
@@ -96,12 +96,13 @@ The gap is the **Beam Paths → Overlap offset** setting (Settings tab, default 
 
 ### Keyboard shortcuts
 
-Shortcuts are disabled while typing in a text field, except Cmd/Ctrl+F and Cmd/Ctrl+S, which always work.
+Shortcuts are disabled while typing in a text field, except Cmd/Ctrl+F, Cmd/Ctrl+S and Cmd/Ctrl+D, which always work.
 
 | Shortcut | Action |
 |---|---|
 | `Cmd/Ctrl+F` | Open the search bar and jump to matching elements |
-| `Cmd/Ctrl+S` | Download Project (saves the current layout as a `.zip`) |
+| `Cmd/Ctrl+S` | Sync the current project to the cloud (if it's cloud-linked) |
+| `Cmd/Ctrl+D` | Download Project (saves the current layout as a `.zip`) |
 | `Cmd/Ctrl+Z` | Undo the last change |
 | `N` | Add a new element at the last cursor position, reusing the previously used type |
 | `D` | Quick-add a new element at the cursor with the previously used type — no form step. Inherits rotation from the currently selected element if its type matches. |
@@ -186,7 +187,7 @@ Drag the divider between the canvas and the sidebar to resize the sidebar.
 **File ▾** has two sections:
 
 - **Upload** — `Upload Elements…` / `Upload Paths…` / `Upload Objects…` / `Upload Settings…` load individual CSV/JSON files; `Upload Project…` loads a full `.zip` bundle (all files plus embedded custom symbols).
-- **Download** — the matching per-file downloads, plus `Download Project` (also bound to `Cmd/Ctrl+S`) which exports everything as a `.zip`.
+- **Download** — the matching per-file downloads, plus `Download Project` (also bound to `Cmd/Ctrl+D`) which exports everything as a `.zip`.
 
 Creating, switching, renaming, duplicating and deleting projects, and (optionally) syncing them to the cloud, all live in the **Projects panel** on the left now — see [The Projects panel](#the-projects-panel-local--cloud-storage) above.
 

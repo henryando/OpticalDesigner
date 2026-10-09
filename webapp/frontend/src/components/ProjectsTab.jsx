@@ -7,7 +7,7 @@
 // Unlike Beam Propagation's rail, a project here is never "bundled" with
 // others — one project is exactly one cloud_projects row, so syncing,
 // deleting, etc. only ever touch that one row.
-import { useEffect, useRef, useState } from 'react'
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import { supabase } from '../supabaseClient'
 import AuthPanel from './AuthPanel'
 import {
@@ -95,13 +95,13 @@ function ContextMenu({ x, y, items, onClose }) {
   )
 }
 
-export default function ProjectsTab({
+const ProjectsTab = forwardRef(function ProjectsTab({
   currentProjectId,
   captureProjectState, applyProjectState,
   setCurrentProjectName,
   openProjectById, renameProjectById, deleteProjectById, startNewProject, saveProjectSlot,
   onUploadProjectClick,
-}) {
+}, ref) {
   const [collapsed, setCollapsed] = useState(() => {
     try { return localStorage.getItem('optDesign_projPanelCollapsed') === '1' } catch { return false }
   })
@@ -298,6 +298,24 @@ export default function ProjectsTab({
     if (status === 'behind') { runOp(id, () => pullProject(id)); return }
     runOp(id, async () => { const r = await pushProject(id); if (r === 'conflict') openConflictDialog(id) })
   }
+
+  // Imperative handle so App.jsx can trigger "sync the current project"
+  // from a global keybind (Cmd/Ctrl+S) without threading the sync logic out.
+  useImperativeHandle(ref, () => ({
+    syncCurrent() {
+      if (!currentProjectId) {
+        setBanner({ kind: 'notice', text: 'No project open — nothing to sync.' })
+        return
+      }
+      const proj = projects[currentProjectId]
+      if (!proj) return
+      if (!proj.cloud) {
+        setBanner({ kind: 'notice', text: `"${proj.name}" isn't linked to the cloud. Use the Projects panel to upload it first.` })
+        return
+      }
+      handleSyncClick(currentProjectId)
+    },
+  }), [currentProjectId, projects, busyIds, remoteStatus, session]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function commitMoveToCloud(id, name) {
     const trimmed = name.trim() || 'Untitled'
@@ -614,4 +632,5 @@ export default function ProjectsTab({
       )}
     </aside>
   )
-}
+})
+export default ProjectsTab
