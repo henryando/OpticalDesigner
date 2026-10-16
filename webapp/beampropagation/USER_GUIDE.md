@@ -240,9 +240,9 @@ This turns a beam path drawn in the [Optical Table Designer](../../README.md) in
 
 <p align="center"><img src="docs/screenshots/import.png" alt="Importing a beam path" width="820" /></p>
 
-1. Click **Upload from project .zip** (at the right of the *Optics and test points* heading, once you have a propagation open — **+ New** makes a blank one if you don't yet) and choose a project downloaded from the designer (**File ▾ → Download Project**). Only the layout is read — any propagations saved inside the zip are ignored, so your open plots are never touched. The project's name appears next to the title, and the path picker opens straight away. This works the same whether or not a project is already loaded — it always asks for the `.zip` first.
+1. Click **Upload from project .zip** (at the right of the *Optics and test points* heading, once you have a propagation open — **+ New** makes a blank one if you don't yet) and choose a project downloaded from the designer (**File ▾ → Download Project**). Only the layout is read — any propagations saved inside the zip are ignored, so your open plots are never touched. The project's name appears next to the title, and the path picker opens straight away.
 2. Pick a **Path**. The diagram shows its elements: scroll to zoom, drag to pan, **Reset view** to recentre, and the tick boxes control what is drawn on each element.
-3. Click a node to set the **start**, then another to set the **end**. If more than one route joins them, a list appears; hover a route to preview it, then click **Import**. The path arrives as a **new propagation** named *Imported: <path>*.
+3. Click a node to set the **start**, then another to set the **end**. If more than one route joins them, a list appears; hover a route to preview it, then click **Import**. The path's optics replace whatever was in the propagation you had open when you clicked **Upload from project .zip** — its name, wavelength and other settings are left alone. (If nothing was open yet, a **new** propagation named *Imported: <path>* is created to hold it.)
 
 What you get:
 
@@ -253,7 +253,7 @@ What you get:
 
 Then set the wavelength and initial beam, add anything the layout doesn't contain (test points, prism pairs), and adjust as needed.
 
-If you later change the layout in the designer, load the updated project (**Upload from project .zip**, then cancel the path picker that follows — you don't need to re-pick a path) and click **↻ Reimport** on the propagation. It refreshes the distances and focal lengths, keeping the same path and anything you added yourself.
+If you later change the layout in the designer, load the updated project (**Upload from project .zip**, then pick the same start/end again) and click **↻ Reimport** on the propagation, or just click **↻ Reimport** directly if you still have the project loaded — either way it refreshes the distances and focal lengths, keeping the same path and anything you added yourself.
 
 ### Work with elliptical beams: cylindrical lenses and prism pairs
 

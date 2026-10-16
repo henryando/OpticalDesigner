@@ -1437,6 +1437,11 @@ const BeamPropagationMode = forwardRef(function BeamPropagationMode({
   }
 
   // ── Import from designer beam path ───────────────────────────────────────
+  // Imports into the propagation that's already open (keeping its id, name
+  // and settings — just replacing its optics/source) rather than spawning a
+  // separate "Imported: …" one, so picking a path never moves you out of
+  // whatever you were working on. Only when nothing is open yet does this
+  // create a new propagation to hold the import.
   function acceptImport({ pathName, nodes, distances_mm }) {
     // Build optics list. Each node becomes an optic marker at its cumulative z.
     // Elements whose type contains "lens" become editable lenses (f seeded
@@ -1462,12 +1467,18 @@ const BeamPropagationMode = forwardRef(function BeamPropagationMode({
         elementType: el?.type ?? '',
       })
     }
-    const np = makeDefaultPropagation(`Imported: ${pathName}`)
-    np.optics = optics
-    np.distance_mm = Math.max(500, z + 50)
-    np.source = { pathName, nodes, distances_mm }
-    commitPropsDiscrete({ ...propagations, [np.id]: np })
-    setActive(np.id)
+    const distance_mm = Math.max(500, z + 50)
+    const source = { pathName, nodes, distances_mm }
+    if (p) {
+      commitPropsDiscrete({ ...propagations, [p.id]: { ...p, optics, distance_mm, source } })
+    } else {
+      const np = makeDefaultPropagation(`Imported: ${pathName}`)
+      np.optics = optics
+      np.distance_mm = distance_mm
+      np.source = source
+      commitPropsDiscrete({ ...propagations, [np.id]: np })
+      setActive(np.id)
+    }
     setImportOpen(false)
   }
 
@@ -2004,7 +2015,7 @@ const BeamPropagationMode = forwardRef(function BeamPropagationMode({
                 <span style={{ flex: 1 }} />
                 <button className="small-btn" style={{ textTransform: 'none', letterSpacing: 0 }}
                   onClick={() => projectZipInputRef.current.click()}
-                  title="Choose a designer project .zip, then pick a beam path to import as a new propagation. Propagations inside the zip are ignored.">
+                  title="Choose a designer project .zip, then pick a beam path to import into this propagation. Propagations inside the zip are ignored.">
                   Upload from project .zip
                 </button>
               </div>
