@@ -290,6 +290,17 @@ export default function App() {
     document.documentElement.dataset.theme = settings.darkMode ? 'dark' : 'light'
   }, [settings.darkMode])
 
+  // First-run bootstrap: if there's nothing to open (no local projects, no
+  // persisted "current project" pointer), start a fresh "Untitled 1" slot
+  // so the user doesn't land on a canvas that isn't backed by any project.
+  // Runs once per mount; subsequent renames/deletes are the user's.
+  useEffect(() => {
+    if (currentProjectId) return
+    if (Object.keys(loadSavedProjects()).length > 0) return
+    startNewProject('Untitled 1')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   // ── Derived state ──────────────────────────────────────────────────────────
   // All elements with overrides merged — used for the sidebar list (includes hidden)
   const allMergedElements = useMemo(() =>
@@ -593,17 +604,23 @@ export default function App() {
   function transformProject(kind) {
     const ox = config.origin_x ?? 0
     const oy = config.origin_y ?? 0
-    // Rotations pivot around the table's origin corner so origin stays put.
-    // Flips still use the table centre so mirrored content lands inside the box.
-    const cx = ox + (config.table_length ?? 55) / 2
-    const cy = oy + (config.table_width  ?? 85) / 2
+    const L  = config.table_length ?? 55
+    const W  = config.table_width  ?? 85
+    // Flips use the table centre so mirrored content lands inside the box.
+    const cx = ox + L / 2
+    const cy = oy + W / 2
     let mapPt, mapAngle, imgAngle, imgFlipDelta = { x: false, y: false }
     let swapDims = false
     // Coerce every input to a Number so a legacy string field can't turn
     // arithmetic into string concatenation.
     const N = v => { const n = Number(v); return Number.isFinite(n) ? n : 0 }
+    // Rotations map the old table [ox, ox+L] × [oy, oy+W] onto the NEW
+    // (swapped) footprint [ox, ox+W] × [oy, oy+L]. The map is a 90° rotation
+    // plus a translation that puts the four old corners on the matching
+    // new corners (visual CW: bottom-left → top-left, etc.). Without the
+    // trailing +L / +W offsets the content ends up outside the canvas.
     if (kind === 'rotateCW') {
-      mapPt = (x, y) => ({ x: ox + (N(y) - oy), y: oy - (N(x) - ox) })
+      mapPt = (x, y) => ({ x: ox + (N(y) - oy), y: oy + L - (N(x) - ox) })
       mapAngle = a => N(a) - 90
       // Background images use the raw SVG rotate() angle, which visually
       // rotates opposite to the element convention. Negate so they turn the
@@ -611,7 +628,7 @@ export default function App() {
       imgAngle = a => N(a) + 90
       swapDims = true
     } else if (kind === 'rotateCCW') {
-      mapPt = (x, y) => ({ x: ox - (N(y) - oy), y: oy + (N(x) - ox) })
+      mapPt = (x, y) => ({ x: ox + W - (N(y) - oy), y: oy + (N(x) - ox) })
       mapAngle = a => N(a) + 90
       imgAngle = a => N(a) - 90
       swapDims = true
