@@ -729,6 +729,28 @@ function BeamPlot({ traces, referenceTraces = [], events, testPoints, zTotal, me
     }
   }
   function endDrag() { dragRef.current = null; resizeRef.current = null }
+  // Track the drag on `document`, not just the SVG: dragging the resize
+  // handle outward to make the plot BIGGER immediately moves the cursor
+  // past the SVG's current edge, and an element-scoped onMouseMove/
+  // onMouseLeave would cut the drag short right there — growing the plot
+  // (or dragging an optic near the plot's edge) would silently stop
+  // working the moment the cursor left the box. Refs keep the listener
+  // itself stable across renders while always calling the latest closures
+  // (which capture per-render props like onResize/onDragOptic).
+  const onSvgMouseMoveRef = useRef(onSvgMouseMove)
+  onSvgMouseMoveRef.current = onSvgMouseMove
+  const endDragRef = useRef(endDrag)
+  endDragRef.current = endDrag
+  useEffect(() => {
+    const handleMove = e => onSvgMouseMoveRef.current(e)
+    const handleUp = () => endDragRef.current()
+    document.addEventListener('mousemove', handleMove)
+    document.addEventListener('mouseup', handleUp)
+    return () => {
+      document.removeEventListener('mousemove', handleMove)
+      document.removeEventListener('mouseup', handleUp)
+    }
+  }, [])
   // Pick a y-axis maximum that fits the widest sample across all traces
   // (and any overlaid measurement points) with a small headroom so the
   // beam never touches the top edge.
@@ -748,8 +770,7 @@ function BeamPlot({ traces, referenceTraces = [], events, testPoints, zTotal, me
   const iconTop = PAD_T + 4
 
   return (
-    <svg className="prop-plot" width={W} height={H} ref={svgRef}
-      onMouseMove={onSvgMouseMove} onMouseUp={endDrag} onMouseLeave={endDrag}>
+    <svg className="prop-plot" width={W} height={H} ref={svgRef}>
       {/* title + legend row */}
       {title && (
         <text x={PAD_L} y={14} fontSize={12} fill="var(--text)" fontWeight={600}>{title}</text>
@@ -1019,9 +1040,11 @@ function BeamPlot({ traces, referenceTraces = [], events, testPoints, zTotal, me
             })}
         </g>
       ))}
-      {/* Resize handle in the bottom-right corner. Drag to zoom the plot. */}
+      {/* Resize handle in the bottom-right corner. Drag to zoom the plot.
+          Screen-only affordance — stripped out before PDF export (see
+          "plot-resize-handle" in exportPropagationPdf). */}
       {onResize && (
-        <g style={{ cursor: 'nwse-resize' }}
+        <g className="plot-resize-handle" style={{ cursor: 'nwse-resize' }}
            onMouseDown={e => {
              e.stopPropagation(); e.preventDefault()
              resizeRef.current = {
@@ -1887,7 +1910,10 @@ const BeamPropagationMode = forwardRef(function BeamPropagationMode({
 
     // Beam-profiler measurements (raw scatter to overlay on the plot),
     // converted to 1/e² intensity radius using the stored width convention.
-    const meas = p.waistMeasurements
+    // Hidden via showMeasurements when the user doesn't want the scatter
+    // cluttering the plot anymore (defaults to shown, same as before this
+    // toggle existed).
+    const meas = p.showMeasurements === false ? null : p.waistMeasurements
     const measFactor = meas ? (WIDTH_CONVERSIONS[meas.widthDefinition] ?? 1) : 1
     const measX = [], measY = []
     for (const r of (meas?.rows ?? [])) {
@@ -1992,6 +2018,11 @@ const BeamPropagationMode = forwardRef(function BeamPropagationMode({
           if (fs) dst.setAttribute('font-size', parseFloat(fs))
         }
       }
+      // The resize-handle grip is a screen-only affordance — drop it from
+      // the clone now (after the index-paired color-matching loop above,
+      // not before: removing it earlier would desync srcAll/dstAll's
+      // indices by one, same issue the Y-axis line hit).
+      clone.querySelector('.plot-resize-handle')?.remove()
       // Give svg2pdf a font it actually knows. Its built-in font table
       // resolves 'sans-serif' → 'helvetica'; without this, text ends up in
       // the default 'times' font at the wrong metrics, so labels don't sit
@@ -2462,6 +2493,8 @@ const BeamPropagationMode = forwardRef(function BeamPropagationMode({
                       { points: compute.measurements.x, color: '#61afef', label: 'x meas' },
                       { points: compute.measurements.y, color: '#e06c75', label: 'y meas', marker: 'square' },
                     ]}
+                    width={p.plotWidth} height={p.plotHeight}
+                    onResize={(w, h) => mutate({ plotWidth: w, plotHeight: h })}
                     onDragOptic={(id, patch) => mutateOpticById(id, patch)} />
                 ) : (
                   <BeamPlot
@@ -2470,6 +2503,8 @@ const BeamPropagationMode = forwardRef(function BeamPropagationMode({
                     events={compute.trace.events}
                     testPoints={compute.testPoints} zTotal={compute.trace.zTotal} widthMode={p.widthMode} showGrid={p.showGrid}
                     measurements={[{ points: compute.measurements.x, color: '#61afef', label: 'meas' }]}
+                    width={p.plotWidth} height={p.plotHeight}
+                    onResize={(w, h) => mutate({ plotWidth: w, plotHeight: h })}
                     onDragOptic={(id, patch) => mutateOpticById(id, patch)} />
                 )}
               </div>
@@ -2486,6 +2521,11 @@ const BeamPropagationMode = forwardRef(function BeamPropagationMode({
                 onChange={e => mutate({ hidePassthroughOnPlot: e.target.checked })} /> Hide pass-through on plot</label>
               <label className="prop-field"><input type="checkbox" checked={p.hidePassthroughInTable ?? false}
                 onChange={e => mutate({ hidePassthroughInTable: e.target.checked })} /> Hide pass-through in table</label>
+              {p.waistMeasurements?.rows?.length > 0 && (
+                <label className="prop-field" title="The beam-width measurements used in Fit from measurements, overlaid on the plot as scatter points">
+                  <input type="checkbox" checked={p.showMeasurements !== false}
+                    onChange={e => mutate({ showMeasurements: e.target.checked })} /> Show fitted data</label>
+              )}
             </div>
 
             {/* Parameters table */}

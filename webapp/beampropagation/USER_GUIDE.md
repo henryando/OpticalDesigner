@@ -196,7 +196,7 @@ Most things can be adjusted by dragging:
 | A **test point's line or label** ← → | its z |
 | The plot's **bottom-right corner** | the plot size |
 
-Below the plot, **Show gridlines** overlays faint horizontal/vertical guides at the plot's tick marks; **Show reference beam (no optics)** adds a dashed "no optics" trace showing what the same initial beam would do propagating through free space alone, so you can see at a glance what the optics above actually did to it; **Hide pass-through on plot** and **Hide pass-through in table** declutter imported plots.
+Below the plot, **Show gridlines** overlays faint horizontal/vertical guides at the plot's tick marks; **Show reference beam (no optics)** adds a dashed "no optics" trace showing what the same initial beam would do propagating through free space alone, so you can see at a glance what the optics above actually did to it; **Hide pass-through on plot** and **Hide pass-through in table** declutter imported plots; **Show fitted data** (only shown once you've run **Fit from measurements…**) toggles the measured scatter points on the plot without discarding them.
 
 ### Beam parameters
 
