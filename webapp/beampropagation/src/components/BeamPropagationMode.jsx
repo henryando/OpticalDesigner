@@ -9,7 +9,7 @@
 import { useMemo, useState, useRef, useEffect, useImperativeHandle, forwardRef } from 'react'
 import {
   qFromBeam, qFromWaistPosition, sampleWofZ2D, radiusFromQ,
-  propagateFreeSpace, propagateThinLens, propagatePrismPair,
+  propagateFreeSpace, propagateThinLens, propagatePrismPair, propagateABCD,
   nmToMm, mradToRad, fitBeamWaist, WIDTH_CONVERSIONS,
 } from '../utils/gaussian'
 import { normalizePropagation, widthModeInfo, DEFAULT_W0_MM } from '../utils/propagationModel'
@@ -47,9 +47,14 @@ function NumberField({ value, onCommit, step, min, max, style, fallback = 0 }) {
 
 // ── Default new propagation ────────────────────────────────────────────────
 // Waists are stored as 1/e² intensity RADII in mm (standard Gaussian
-// convention). optics kind: 'lens' (contributes ABCD), 'prism-pair',
-// 'passthrough' (identity — used for non-lens elements imported from a designer
-// path) or 'test' (a marked z position where the beam size is reported).
+// convention). optics kind: 'lens' (contributes ABCD), 'prism-pair'
+// (anamorphic, one axis), 'telescope' (afocal expander/reducer, q → M²·q on
+// both axes isotropically), 'periscope' (no lensing of its own — a point
+// transform q → q + height, the ABCD matrix (1, h; 0, 1), same as its height
+// in free space), 'abcd' (an arbitrary user-specified ABCD matrix),
+// 'passthrough' (identity — used for non-lens elements imported
+// from a designer path) or 'test' (a marked z position where the beam size
+// is reported).
 function makeDefaultPropagation(name = 'New propagation') {
   return {
     id: crypto.randomUUID(),
@@ -95,15 +100,37 @@ function inferFocalLengthMm(el) {
     el.Annotation, el.annotation,
   ].filter(s => typeof s === 'string' && s.trim())
   for (const raw of candidates) {
-    const parsed = parseLengthMm(raw)
+    const parsed = parseLengthMm(raw, 'f')
     if (Number.isFinite(parsed)) return parsed
   }
   return NaN
 }
 
-function parseLengthMm(text) {
-  // Prefer "f = 100 mm" pattern; fall back to any leading "<num><unit>".
-  const m = /f\s*=\s*(-?\d+(?:\.\d+)?)\s*(mm|cm|m|in|")?/i.exec(text)
+// ── Periscope-height inference from a designer element ──────────────────────
+// Same idea as inferFocalLengthMm above, but for a periscope's height:
+//   1. The element's h_mm field (numeric).
+//   2. A "Height" custom column (string with optional units).
+//   3. The Annotation field, parsed for "h=<num><unit>" or a bare "<num><unit>".
+function inferPeriscopeHeightMm(el) {
+  if (!el) return NaN
+  const num = Number(el.h_mm)
+  if (Number.isFinite(num)) return num
+  const candidates = [
+    el['Height'], el['height'], el.h,
+    el.Annotation, el.annotation,
+  ].filter(s => typeof s === 'string' && s.trim())
+  for (const raw of candidates) {
+    const parsed = parseLengthMm(raw, 'h')
+    if (Number.isFinite(parsed)) return parsed
+  }
+  return NaN
+}
+
+function parseLengthMm(text, prefix = 'f') {
+  // Prefer "f = 100 mm" (or "h = 100 mm", ...) pattern; fall back to any
+  // leading "<num><unit>".
+  const prefixed = new RegExp(`${prefix}\\s*=\\s*(-?\\d+(?:\\.\\d+)?)\\s*(mm|cm|m|in|")?`, 'i')
+  const m = prefixed.exec(text)
     || /(-?\d+(?:\.\d+)?)\s*(mm|cm|m|in|")\b/i.exec(text)
   if (!m) return NaN
   const n = parseFloat(m[1])
@@ -410,12 +437,80 @@ function ImportGraphModal({ beamPaths, elements, symbolDefs, onClose, onImport }
 // otherwise vanish from the export. Fetch each href once, cache the parsed
 // content, and replace <image> with a <g transform="translate(x,y) scale(sx,sy)">
 // wrapping the source SVG's paths.
+//
+// The "homemade" symbols (periscope, telescope, prism pair, …) are
+// Illustrator/Inkscape exports whose gradients trip up svg2pdf the same way
+// they did in the Optical Table Designer's own PDF export
+// (webapp/frontend/src/utils/pdfExport.js) — ported the same three fixes:
+//   - Inkscape gradients often carry no stops of their own, inheriting them
+//     via xlink:href="#base". svg2pdf doesn't resolve that inheritance, so
+//     the referencing gradient reads as empty. flattenGradientInheritance
+//     copies the base's stops onto every gradient that references one.
+//   - Every Illustrator export reuses the same handful of ids
+//     (linearGradientN, XMLID_N_, …). Inlining the SAME cached symbol more
+//     than once (two lenses, two periscopes, …) would duplicate those ids
+//     in one document, and svg2pdf resolves url(#id) to whichever element
+//     with that id it finds first — so every instance after the first gets
+//     the first instance's gradient. prefixIds makes each inlined instance's
+//     ids (and its own url(#...)/href="#..." references) unique.
+//   - svg2pdf reads fill/stroke/opacity/etc. from DOM attributes, not from
+//     inline style="" — promoteStylesToAttrs copies the common presentation
+//     properties over (stop-color/stop-opacity need the same treatment,
+//     handled separately below since <stop> isn't in PRESENTATION_PROPS'
+//     territory until promoted).
+const PRESENTATION_PROPS = [
+  'fill', 'fill-opacity', 'fill-rule',
+  'stroke', 'stroke-width', 'stroke-opacity',
+  'stroke-linecap', 'stroke-linejoin', 'stroke-dasharray',
+  'stroke-miterlimit', 'stroke-dashoffset',
+  'opacity', 'display', 'visibility',
+]
+function promoteStylesToAttrs(el) {
+  const style = el.getAttribute && el.getAttribute('style')
+  if (style) {
+    for (const prop of PRESENTATION_PROPS) {
+      if (el.hasAttribute(prop)) continue
+      const m = style.match(new RegExp(`(?:^|;)\\s*${prop}\\s*:\\s*([^;]+)`))
+      if (m) el.setAttribute(prop, m[1].trim())
+    }
+  }
+  for (const child of el.children) promoteStylesToAttrs(child)
+}
+function flattenGradientInheritance(root) {
+  const grads = root.querySelectorAll('linearGradient, radialGradient')
+  const byId = {}
+  grads.forEach(g => { const id = g.getAttribute('id'); if (id) byId[id] = g })
+  grads.forEach(g => {
+    if (g.querySelector(':scope > stop')) return
+    const ref = g.getAttribute('xlink:href') || g.getAttribute('href')
+    if (!ref || !ref.startsWith('#')) return
+    const src = byId[ref.slice(1)]
+    if (!src) return
+    src.querySelectorAll(':scope > stop').forEach(stop => g.appendChild(stop.cloneNode(true)))
+    g.removeAttribute('xlink:href')
+    g.removeAttribute('href')
+  })
+}
+function prefixIds(el, prefix) {
+  if (el.hasAttribute('id'))
+    el.setAttribute('id', prefix + el.getAttribute('id'))
+  for (const attr of [...el.attributes]) {
+    if (attr.value.includes('url(#'))
+      el.setAttribute(attr.name, attr.value.replace(/url\(#([^)]+)\)/g, `url(#${prefix}$1)`))
+    if ((attr.name === 'href' || attr.name === 'xlink:href') && attr.value.startsWith('#'))
+      el.setAttribute(attr.name, '#' + prefix + attr.value.slice(1))
+  }
+  for (const child of el.children) prefixIds(child, prefix)
+}
 const _symbolCache = new Map()
 async function loadSymbolSvg(href) {
   if (_symbolCache.has(href)) return _symbolCache.get(href)
   const p = fetch(href).then(r => r.text()).then(txt => {
     const doc = new DOMParser().parseFromString(txt, 'image/svg+xml')
-    return doc.documentElement
+    const svg = doc.documentElement
+    promoteStylesToAttrs(svg)
+    flattenGradientInheritance(svg)
+    return svg
   }).catch(() => null)
   _symbolCache.set(href, p)
   return p
@@ -437,7 +532,7 @@ function placeholderForImage(im) {
 }
 async function inlineSymbolImages(root) {
   const imgs = [...root.querySelectorAll('image')]
-  await Promise.all(imgs.map(async im => {
+  await Promise.all(imgs.map(async (im, idx) => {
     const href = im.getAttribute('href') || im.getAttribute('xlink:href') || ''
     if (!href) { im.replaceWith(placeholderForImage(im)); return }
     let src
@@ -479,6 +574,11 @@ async function inlineSymbolImages(root) {
       if (child.tagName?.toLowerCase() === 'image') continue
       g.appendChild(child.cloneNode(true))
     }
+    // Every instance of the same symbol (e.g. two lenses) was just cloned
+    // from the same cached source, so they currently share ids — give this
+    // instance its own so svg2pdf doesn't resolve every url(#...) to
+    // whichever instance happened to be inlined first.
+    prefixIds(g, `pdfsym${idx}_`)
     im.replaceWith(g)
   }))
 }
@@ -513,6 +613,16 @@ function tickLabel(v, step) {
   return v.toFixed(3)
 }
 
+// Second label line under a plot event marker, summarizing its strength.
+function eventLine2(ev) {
+  if (ev.kind === 'lens' && Number.isFinite(Number(ev.f)) && Number(ev.f) !== 0) return `f=${ev.f}mm`
+  if (ev.kind === 'prism-pair' && Number.isFinite(Number(ev.mag))) return `${ev.axis === 'y' ? 'Y' : 'X'} ×${ev.mag}`
+  if (ev.kind === 'telescope' && Number.isFinite(Number(ev.mag))) return `×${ev.mag}`
+  if (ev.kind === 'periscope' && Number.isFinite(Number(ev.height))) return `h=${ev.height}mm`
+  if (ev.kind === 'abcd') return 'ABCD'
+  return ''
+}
+
 function BeamPlot({ traces, referenceTraces = [], events, testPoints, zTotal, measurements = [], width = 720, height = 240, title, widthMode = 'radius', showGrid = false, onDragOptic, onResize }) {
   const W = Math.max(360, width), H = Math.max(160, height)
   // Traces and measurements arrive as radii in mm; scale to what is displayed.
@@ -535,10 +645,7 @@ function BeamPlot({ traces, referenceTraces = [], events, testPoints, zTotal, me
     const items = [
       ...events.map(ev => {
         const line1 = ev.elementLabel ?? ev.label ?? 'L'
-        const line2 = (ev.kind === 'lens' && Number.isFinite(Number(ev.f)) && Number(ev.f) !== 0)
-          ? `f=${ev.f}mm`
-          : (ev.kind === 'prism-pair' && Number.isFinite(Number(ev.mag)))
-            ? `${ev.axis === 'y' ? 'Y' : 'X'} ×${ev.mag}` : ''
+        const line2 = eventLine2(ev)
         return { z_mm: ev.z_mm, chars: Math.max(line1.length, line2.length) }
       }),
       ...testPoints.map((tp, i) => ({ z_mm: tp.z_mm, chars: (tp.label ?? `t${i + 1}`).length })),
@@ -570,8 +677,14 @@ function BeamPlot({ traces, referenceTraces = [], events, testPoints, zTotal, me
   //   { opticId, startClientX, startClientY, startZ, startF, axis }
   // axis: null (undecided) | 'x' (change z) | 'y' (change f)
   const dragRef = useRef(null)
-  // Convert screen x (in SVG local coords) to a physical z in mm.
-  const xToZ = px => Math.max(0, Math.min(zTotal, (px - PAD_L) / plotW * zTotal))
+  // Convert screen x (in SVG local coords) to a physical z in mm, snapped
+  // to the nearest 0.1mm — dragging is a coarse, mouse-driven motion, so it
+  // shouldn't leave behind arbitrary-precision floats; typing a z value
+  // directly still accepts any decimal.
+  const xToZ = px => {
+    const raw = Math.max(0, Math.min(zTotal, (px - PAD_L) / plotW * zTotal))
+    return Math.round(raw * 10) / 10
+  }
   // Vertical drag → focal-length change. Positive dy (dragging DOWN) shortens
   // the focal length; positive up lengthens it. Scale is chosen so a full
   // plot-height drag roughly halves / doubles a typical focal length.
@@ -609,6 +722,10 @@ function BeamPlot({ traces, referenceTraces = [], events, testPoints, zTotal, me
       const M_PER_PIXEL = 0.005
       const newM = Math.max(0.05, d.startMag - dy * M_PER_PIXEL)
       onDragOptic?.(d.opticId, { mag: Math.round(newM * 100) / 100 })
+    } else if (d.axis === 'y' && d.kind === 'periscope' && Number.isFinite(d.startHeight)) {
+      // Up = taller, down = shorter.
+      const newH = Math.max(0, d.startHeight - dy * F_PER_PIXEL)
+      onDragOptic?.(d.opticId, { height_mm: Math.round(newH * 10) / 10 })
     }
   }
   function endDrag() { dragRef.current = null; resizeRef.current = null }
@@ -738,8 +855,11 @@ function BeamPlot({ traces, referenceTraces = [], events, testPoints, zTotal, me
           (label + shape, then f=Xmm) so long labels don't collide with
           adjacent lenses. Lenses can be dragged horizontally to change z. */}
       {events.map((ev, i) => {
-        const isLens  = ev.kind === 'lens'
-        const isPrism = ev.kind === 'prism-pair'
+        const isLens      = ev.kind === 'lens'
+        const isPrism     = ev.kind === 'prism-pair'
+        const isTelescope = ev.kind === 'telescope'
+        const isPeriscope = ev.kind === 'periscope'
+        const isAbcd      = ev.kind === 'abcd'
         const enabled = ev.enabled !== false
         const isNegative = isLens && Number(ev.f) < 0
         const cx = xOf(ev.z_mm)
@@ -747,36 +867,36 @@ function BeamPlot({ traces, referenceTraces = [], events, testPoints, zTotal, me
           isLens  && ev.shape && ev.shape !== 'spherical' ? ` (${ev.shape})` :
           isPrism ? ` (${ev.axis === 'y' ? 'y' : 'x'})` : ''
         const line1 = `${ev.elementLabel ?? ev.label ?? 'L'}${shapeSuffix}`
-        const line2 =
-          isLens  && Number.isFinite(ev.f) && ev.f !== 0 ? `f=${ev.f}mm` :
-          isPrism && Number.isFinite(ev.mag)             ? `×${ev.mag}` : ''
-        const stroke = isLens ? '#e0b040' : isPrism ? '#5ec4c4' : 'var(--text-muted)'
+        const line2 = eventLine2(ev)
+        const stroke = isLens ? '#e0b040' : isPrism ? '#5ec4c4'
+          : isTelescope ? '#6fcf97' : isPeriscope ? '#7aa6da' : isAbcd ? '#c77dd1' : 'var(--text-muted)'
         const draggable = !!onDragOptic && ev.opticId != null
         const startDrag = (e, axis) => {
           e.stopPropagation(); e.preventDefault()
           dragRef.current = {
             opticId: ev.opticId,
-            kind:  ev.kind,      // 'lens' | 'prism-pair' | 'passthrough'
+            kind:  ev.kind,      // 'lens' | 'prism-pair' | 'telescope' | 'periscope' | 'abcd' | 'passthrough'
             startClientX: e.clientX,
             startClientY: e.clientY,
             startZ: ev.z_mm,
             startF: Number(ev.f),
             startMag: Number(ev.mag),
+            startHeight: Number(ev.height),
             axis,   // null = decided on first mousemove
           }
         }
-        // Icon: horizontal → z, vertical → f / M.  Line: z only.
+        // Icon: horizontal → z, vertical → f / M / height.  Line: z only.
         const beginDrag     = draggable ? (e => startDrag(e, null)) : undefined
         const beginLineDrag = draggable ? (e => startDrag(e, 'x')) : undefined
         // The line hit-zone starts below the icon; a pass-through has no
         // icon, so its zone runs the full plot height (covering its dot).
-        const hasIcon = isLens || isPrism
+        const hasIcon = isLens || isPrism || isTelescope || isPeriscope || isAbcd
         const lineZoneTop = hasIcon ? PAD_T + LENS_H + 2 : PAD_T
         return (
           <g key={`e${i}`} opacity={enabled ? 1 : 0.35}>
             <line x1={cx} y1={PAD_T + LENS_H + 4} x2={cx} y2={PAD_T + plotH}
               stroke={stroke} strokeDasharray="4 3" strokeWidth={1}
-              opacity={(isLens || isPrism) ? 0.6 : 0.3} />
+              opacity={hasIcon ? 0.6 : 0.3} />
             {isLens && !isNegative ? (
               <image href="/symbols/b-lens1.svg"
                 x={cx - LENS_W / 2} y={iconTop}
@@ -798,6 +918,28 @@ function BeamPlot({ traces, referenceTraces = [], events, testPoints, zTotal, me
                 x={cx - LENS_W / 2 - 6} y={iconTop}
                 width={LENS_W + 12} height={LENS_H}
                 preserveAspectRatio="xMidYMid meet" />
+            ) : isPeriscope ? (
+              // Source SVG viewBox is 14.93 × 25.11 (portrait, like a lens),
+              // so it fits the lens icon slot with a touch of extra width.
+              <image href="/symbols/h-periscope.svg"
+                x={cx - LENS_W / 2 - 3} y={iconTop}
+                width={LENS_W + 6} height={LENS_H}
+                preserveAspectRatio="xMidYMid meet" />
+            ) : isTelescope ? (
+              // Source SVG viewBox is 25.23 × 25.95 (roughly square), so it
+              // gets a wide slot like the prism pair to come out 34 px tall.
+              <image href="/symbols/h-telescope.svg"
+                x={cx - LENS_W / 2 - 10} y={iconTop}
+                width={LENS_W + 20} height={LENS_H}
+                preserveAspectRatio="xMidYMid meet" />
+            ) : isAbcd ? (
+              // No fixed symbol for an arbitrary matrix — a small labeled box.
+              <g>
+                <rect x={cx - 9} y={iconTop + LENS_H / 2 - 10} width={18} height={20}
+                  rx={2} fill="none" stroke={stroke} strokeWidth={1.3} />
+                <text x={cx} y={iconTop + LENS_H / 2 + 4} textAnchor="middle"
+                  fontSize={9} fontWeight={600} fill={stroke}>M</text>
+              </g>
             ) : (
               <circle cx={cx} cy={iconTop + LENS_H / 2} r={3} fill="var(--text-muted)" opacity={0.55} />
             )}
@@ -834,7 +976,8 @@ function BeamPlot({ traces, referenceTraces = [], events, testPoints, zTotal, me
                 width={LENS_W + 6} height={LENS_H + 4}
                 fill="transparent" style={{ cursor: 'move' }}
                 onMouseDown={beginDrag}>
-                <title>Drag ← → to change z · drag ↑ ↓ to change {isPrism ? 'M' : 'f'}</title>
+                <title>Drag ← → to change z{(isLens || isPrism || isTelescope || isPeriscope)
+                  ? ` · drag ↑ ↓ to change ${(isPrism || isTelescope) ? 'M' : isPeriscope ? 'height' : 'f'}` : ''}</title>
               </rect>
             )}
           </g>
@@ -1414,6 +1557,28 @@ const BeamPropagationMode = forwardRef(function BeamPropagationMode({
     if (!p?.splitXY) patch.splitXY = true
     mutateDiscrete(patch)
   }
+  function addTelescope() {
+    const optic = {
+      id: crypto.randomUUID(), kind: 'telescope', z_mm: 0, mag: 2,
+      label: 'T' + ((p?.optics?.length ?? 0) + 1),
+    }
+    mutateDiscrete({ optics: [...(p?.optics ?? []), optic] })
+  }
+  function addPeriscope() {
+    const optic = {
+      id: crypto.randomUUID(), kind: 'periscope', z_mm: 0, height_mm: 50,
+      label: 'P' + ((p?.optics?.length ?? 0) + 1),
+    }
+    mutateDiscrete({ optics: [...(p?.optics ?? []), optic] })
+  }
+  function addAbcd() {
+    const optic = {
+      id: crypto.randomUUID(), kind: 'abcd', z_mm: 0,
+      A: 1, B: 0, C: 0, D: 1, shape: 'spherical',
+      label: 'M' + ((p?.optics?.length ?? 0) + 1),
+    }
+    mutateDiscrete({ optics: [...(p?.optics ?? []), optic] })
+  }
   function removeOptic(idx) {
     mutateDiscrete({ optics: p.optics.filter((_, i) => i !== idx) })
   }
@@ -1455,12 +1620,17 @@ const BeamPropagationMode = forwardRef(function BeamPropagationMode({
       const el = elById[nodes[i]]
       const type = (el?.type ?? '').toLowerCase()
       const isLens = type.includes('lens')
+      const isPeriscope = !isLens && type.includes('periscope')
+      const isTelescope = !isLens && !isPeriscope && type.includes('telescope')
       const fInferred = isLens ? inferFocalLengthMm(el) : NaN
+      const hInferred = isPeriscope ? inferPeriscopeHeightMm(el) : NaN
       optics.push({
         id: crypto.randomUUID(),
-        kind: isLens ? 'lens' : 'passthrough',
+        kind: isLens ? 'lens' : isPeriscope ? 'periscope' : isTelescope ? 'telescope' : 'passthrough',
         z_mm: z,
         f_mm: Number.isFinite(fInferred) ? fInferred : 0,
+        height_mm: Number.isFinite(hInferred) ? hInferred : 0,
+        mag: isTelescope ? 2 : undefined,
         shape: 'spherical',
         label: nodes[i],
         elementLabel: nodes[i],
@@ -1520,16 +1690,23 @@ const BeamPropagationMode = forwardRef(function BeamPropagationMode({
       const el = elById[nodes[i]]
       const type = (el?.type ?? '').toLowerCase()
       const looksLikeLens = type.includes('lens')
+      const looksLikePeriscope = !looksLikeLens && type.includes('periscope')
+      const looksLikeTelescope = !looksLikeLens && !looksLikePeriscope && type.includes('telescope')
       const fInferred = looksLikeLens ? inferFocalLengthMm(el) : NaN
+      const hInferred = looksLikePeriscope ? inferPeriscopeHeightMm(el) : NaN
       const prev = opticByLabel.get(nodes[i])
       nextImported.push({
         id: prev?.id ?? crypto.randomUUID(),
-        // Preserve manual kind switches (e.g. user marked something as a lens),
-        // but default to lens/passthrough by type when there was no prior optic.
-        kind: prev?.kind ?? (looksLikeLens ? 'lens' : 'passthrough'),
+        // Preserve manual kind switches (e.g. user marked something as a
+        // lens), but default to lens/periscope/telescope/passthrough by type
+        // when there was no prior optic.
+        kind: prev?.kind ?? (looksLikeLens ? 'lens' : looksLikePeriscope ? 'periscope' : looksLikeTelescope ? 'telescope' : 'passthrough'),
         z_mm: z,
         f_mm: Number.isFinite(fInferred) ? fInferred
               : (prev?.kind === 'lens' ? (prev.f_mm ?? 0) : 0),
+        height_mm: Number.isFinite(hInferred) ? hInferred
+              : (prev?.kind === 'periscope' ? (prev.height_mm ?? 0) : 0),
+        mag: prev?.mag ?? (looksLikeTelescope ? 2 : undefined),
         shape: prev?.shape ?? 'spherical',
         label: prev?.label ?? nodes[i],
         elementLabel: nodes[i],
@@ -1598,6 +1775,32 @@ const BeamPropagationMode = forwardRef(function BeamPropagationMode({
                     axis: o.shape === 'prismY' ? 'y' : 'x',
                     label: o.label, elementLabel: o.elementLabel })
         cursor = o.z_mm
+      } else if (o.kind === 'telescope') {
+        if (o.z_mm > cursor) steps.push({ kind: 'space', L: o.z_mm - cursor })
+        steps.push({ kind: 'telescope', mag: o.mag ?? 1,
+                    label: o.label, elementLabel: o.elementLabel })
+        cursor = o.z_mm
+      } else if (o.kind === 'periscope') {
+        // A periscope has no lensing of its own — propagating through it is
+        // exactly the ABCD matrix (1, h; 0, 1), i.e. q → q + h, same as its
+        // height in free space. Applied as a single point (zero added z,
+        // like every other optic here) rather than a sampled 'space'
+        // segment, so z_mm stays one consistent coordinate that later
+        // optics never need to offset for. The tradeoff: the plotted curve
+        // jumps straight from the entrance to the exit value instead of
+        // sweeping through the intermediate shape, which would be an
+        // oversimplification if the beam passes through a waist inside
+        // that height — but the entrance/exit values themselves are exact.
+        if (o.z_mm > cursor) steps.push({ kind: 'space', L: o.z_mm - cursor })
+        steps.push({ kind: 'abcd', A: 1, B: o.height_mm ?? 0, C: 0, D: 1,
+                    shape: 'spherical', label: o.label, elementLabel: o.elementLabel })
+        cursor = o.z_mm
+      } else if (o.kind === 'abcd') {
+        if (o.z_mm > cursor) steps.push({ kind: 'space', L: o.z_mm - cursor })
+        steps.push({ kind: 'abcd', A: o.A ?? 1, B: o.B ?? 0, C: o.C ?? 0, D: o.D ?? 1,
+                    shape: o.shape ?? 'spherical',
+                    label: o.label, elementLabel: o.elementLabel })
+        cursor = o.z_mm
       }
     }
     if (p.distance_mm > cursor) steps.push({ kind: 'space', L: p.distance_mm - cursor })
@@ -1620,12 +1823,14 @@ const BeamPropagationMode = forwardRef(function BeamPropagationMode({
       .filter(o => !p.hidePassthroughOnPlot || o.kind !== 'passthrough')
       .map(o => ({
         z_mm: o.z_mm,
-        kind: o.kind,       // 'lens' | 'prism-pair' | 'passthrough'
+        kind: o.kind,       // 'lens' | 'prism-pair' | 'periscope' | 'abcd' | 'passthrough'
         enabled: o.enabled !== false,
         label: o.label,
         elementLabel: o.elementLabel,
         f: o.f_mm,
         mag: o.mag,
+        height: o.height_mm,
+        A: o.A, B: o.B, C: o.C, D: o.D,
         axis: o.kind === 'prism-pair' ? (o.shape === 'prismY' ? 'y' : 'x') : undefined,
         shape: o.shape ?? 'spherical',
         opticId: o.id,      // for drag-updates by id (indices shift with sort)
@@ -1646,6 +1851,20 @@ const BeamPropagationMode = forwardRef(function BeamPropagationMode({
           const M = o.mag ?? 1
           if (o.shape === 'prismY') qy = propagatePrismPair(qy, M)
           else                       qx = propagatePrismPair(qx, M)
+        } else if (o.kind === 'telescope') {
+          const M = o.mag ?? 1
+          qx = propagatePrismPair(qx, M); qy = propagatePrismPair(qy, M)
+        } else if (o.kind === 'periscope') {
+          // Point transform q → q + h, same as the steps loop above — z
+          // (the nominal cursor) is untouched, consistent with every other
+          // zero-length optic.
+          const h = o.height_mm ?? 0
+          if (h > 0) { qx = propagateFreeSpace(qx, h); qy = propagateFreeSpace(qy, h) }
+        } else if (o.kind === 'abcd') {
+          const A = o.A ?? 1, B = o.B ?? 0, C = o.C ?? 0, D = o.D ?? 1
+          const shape = o.shape ?? 'spherical'
+          if (shape === 'spherical' || shape === 'cylX') qx = propagateABCD(qx, A, B, C, D)
+          if (shape === 'spherical' || shape === 'cylY') qy = propagateABCD(qy, A, B, C, D)
         }
       }
       const dz = z_mm - z
@@ -1656,7 +1875,8 @@ const BeamPropagationMode = forwardRef(function BeamPropagationMode({
       const b = beamAt(o.z_mm)
       return { kind: o.kind, enabled: o.enabled !== false,
                label: o.label, elementLabel: o.elementLabel, elementType: o.elementType,
-               z_mm: o.z_mm, f_mm: o.f_mm, mag: o.mag,
+               z_mm: o.z_mm, f_mm: o.f_mm, mag: o.mag, height_mm: o.height_mm,
+               A: o.A, B: o.B, C: o.C, D: o.D,
                shape: o.shape ?? 'spherical', ...b }
     })
     const rows = opticRows.sort((a, b) => a.z_mm - b.z_mm)
@@ -1731,13 +1951,6 @@ const BeamPropagationMode = forwardRef(function BeamPropagationMode({
       // lens icons are only decorative here; keep them as tiny outlined
       // rectangles for a fully vector output.
       const clone = svg.cloneNode(true)
-      // Give svg2pdf a font it actually knows. Its built-in font table
-      // resolves 'sans-serif' → 'helvetica'; without this, text ends up in
-      // the default 'times' font at the wrong metrics, so labels don't sit
-      // where we placed them.
-      const styleEl = document.createElementNS('http://www.w3.org/2000/svg', 'style')
-      styleEl.textContent = 'text { font-family: sans-serif }'
-      clone.insertBefore(styleEl, clone.firstChild)
       // svg2pdf doesn't resolve CSS variables (var(--text-muted) etc.), so
       // any element whose stroke/fill was a var() renders invisible. Copy
       // the LIVE element's computed color onto its clone. Doing this for
@@ -1779,6 +1992,19 @@ const BeamPropagationMode = forwardRef(function BeamPropagationMode({
           if (fs) dst.setAttribute('font-size', parseFloat(fs))
         }
       }
+      // Give svg2pdf a font it actually knows. Its built-in font table
+      // resolves 'sans-serif' → 'helvetica'; without this, text ends up in
+      // the default 'times' font at the wrong metrics, so labels don't sit
+      // where we placed them. Inserted only now (after the color-matching
+      // loop above) — doing it earlier would prepend an extra child to the
+      // clone that the live SVG doesn't have, shifting every subsequent
+      // querySelectorAll('*') index by one and pairing each clone element
+      // with the wrong live element's computed style (e.g. the Y-axis line
+      // silently picking up a <g> with no stroke of its own, leaving its
+      // var(--text-muted) unresolved and invisible to svg2pdf).
+      const styleEl = document.createElementNS('http://www.w3.org/2000/svg', 'style')
+      styleEl.textContent = 'text { font-family: sans-serif }'
+      clone.insertBefore(styleEl, clone.firstChild)
       // svg2pdf uses the SVG's viewBox to map its coordinate space to the
       // target rect. The live plot has raw width/height but no viewBox, so
       // set one from the current width/height (or fall back to 720x240) —
@@ -1836,14 +2062,21 @@ const BeamPropagationMode = forwardRef(function BeamPropagationMode({
         : (r.kind === 'test' ? 'test point'
            : r.kind === 'lens' ? 'lens'
            : r.kind === 'prism-pair' ? `prism pair (${r.shape === 'prismY' ? 'y' : 'x'})`
+           : r.kind === 'telescope' ? 'telescope'
+           : r.kind === 'periscope' ? 'periscope'
+           : r.kind === 'abcd' ? 'ABCD matrix'
            : 'pass-through')) + (disabled ? ' (off)' : '')
       if (disabled) doc.setTextColor(150); else doc.setTextColor(0)
       const wx = Number.isFinite(r.wx_mm) ? (r.wx_mm * wScale).toFixed(4) : '—'
       const wy = Number.isFinite(r.wy_mm) ? (r.wy_mm * wScale).toFixed(4) : '—'
       const val = r.kind === 'lens' && Number.isFinite(r.f_mm) && r.f_mm !== 0
                     ? `${r.f_mm.toFixed(1)} mm`
-                : r.kind === 'prism-pair' && Number.isFinite(r.mag)
-                    ? `M=${r.mag}` : ''
+                : (r.kind === 'prism-pair' || r.kind === 'telescope') && Number.isFinite(r.mag)
+                    ? `M=${r.mag}`
+                : r.kind === 'periscope' && Number.isFinite(r.height_mm)
+                    ? `h=${r.height_mm} mm`
+                : r.kind === 'abcd'
+                    ? `[${r.A ?? 1},${r.B ?? 0},${r.C ?? 0},${r.D ?? 1}]` : ''
       const vals = p.splitXY
         ? [kindLabel, r.label, r.z_mm.toFixed(1), val, wx, wy, r.elementLabel ?? '']
         : [kindLabel, r.label, r.z_mm.toFixed(1), val, wx, r.elementLabel ?? '']
@@ -2025,6 +2258,18 @@ const BeamPropagationMode = forwardRef(function BeamPropagationMode({
                   <button className="small-btn" onClick={addPrismPair} style={{ marginLeft: 6 }}>
                     + Add prism pair
                   </button>
+                  <button className="small-btn" onClick={addTelescope} style={{ marginLeft: 6 }}
+                    title="Afocal beam expander/reducer — magnifies the beam the same way on both axes">
+                    + Add telescope
+                  </button>
+                  <button className="small-btn" onClick={addPeriscope} style={{ marginLeft: 6 }}
+                    title="No lensing of its own — just adds its height as extra free-space path length">
+                    + Add periscope
+                  </button>
+                  <button className="small-btn" onClick={addAbcd} style={{ marginLeft: 6 }}
+                    title="An arbitrary user-specified ABCD matrix">
+                    + Add ABCD
+                  </button>
                   <button className="small-btn" onClick={addTestPoint} style={{ marginLeft: 6 }}
                     title="Mark a z position where the beam size is reported">
                     + Add test point
@@ -2041,21 +2286,33 @@ const BeamPropagationMode = forwardRef(function BeamPropagationMode({
                   <thead>
                     <tr>
                       <th title="Include this optic in the propagation (for a test point: show it on the plot)">On</th>
-                      <th>Role</th><th>z (mm)</th><th>f / M</th><th>Label</th>
+                      <th>Role</th><th>z (mm)</th>
+                      <th title="Focal length (lens), magnification (prism pair / telescope), height (periscope), or A·B·C·D (ABCD matrix)">f / M</th>
+                      <th>Label</th>
                       <th>Element</th><th></th>
                     </tr>
                   </thead>
                   <tbody>
                     {visibleOptics.map(([o, i]) => {
-                      const isLens  = o.kind === 'lens'
-                      const isPrism = o.kind === 'prism-pair'
-                      const isTest  = o.kind === 'test'
+                      const isLens      = o.kind === 'lens'
+                      const isPrism     = o.kind === 'prism-pair'
+                      const isTelescope = o.kind === 'telescope'
+                      const isPeriscope = o.kind === 'periscope'
+                      const isAbcd      = o.kind === 'abcd'
+                      const isTest      = o.kind === 'test'
                       const enabled = o.enabled !== false
                       // Combined "Role" value: lens-spherical / lens-cylX /
-                      // lens-cylY / prism-x / prism-y / test / passthrough.
+                      // lens-cylY / prism-x / prism-y / telescope / periscope /
+                      // abcd / abcd-cylX / abcd-cylY / test / passthrough.
                       // Reads current kind+shape and writes both on change.
                       const role = isPrism
                         ? (o.shape === 'prismY' ? 'prism-y' : 'prism-x')
+                        : isTelescope
+                          ? 'telescope'
+                        : isPeriscope
+                          ? 'periscope'
+                        : isAbcd
+                          ? (o.shape === 'cylX' ? 'abcd-cylX' : o.shape === 'cylY' ? 'abcd-cylY' : 'abcd')
                         : isTest
                           ? 'test'
                         : !isLens
@@ -2070,11 +2327,16 @@ const BeamPropagationMode = forwardRef(function BeamPropagationMode({
                         else if (next === 'lens-cylY') mutateOptic(i, { kind: 'lens', shape: 'cylY' })
                         else if (next === 'prism-x')   mutateOptic(i, { kind: 'prism-pair', shape: 'prismX', mag: o.mag ?? 2 })
                         else if (next === 'prism-y')   mutateOptic(i, { kind: 'prism-pair', shape: 'prismY', mag: o.mag ?? 2 })
+                        else if (next === 'telescope') mutateOptic(i, { kind: 'telescope', mag: o.mag ?? 2 })
+                        else if (next === 'periscope') mutateOptic(i, { kind: 'periscope', height_mm: o.height_mm ?? 50 })
+                        else if (next === 'abcd')      mutateOptic(i, { kind: 'abcd', shape: 'spherical', A: o.A ?? 1, B: o.B ?? 0, C: o.C ?? 0, D: o.D ?? 1 })
+                        else if (next === 'abcd-cylX') mutateOptic(i, { kind: 'abcd', shape: 'cylX', A: o.A ?? 1, B: o.B ?? 0, C: o.C ?? 0, D: o.D ?? 1 })
+                        else if (next === 'abcd-cylY') mutateOptic(i, { kind: 'abcd', shape: 'cylY', A: o.A ?? 1, B: o.B ?? 0, C: o.C ?? 0, D: o.D ?? 1 })
                         else mutateOptic(i, { kind: 'lens', shape: 'spherical' })
                       }
                       const rowClass =
                         [!enabled ? 'disabled-optic' : '',
-                         (isLens || isPrism || isTest) ? '' : 'passthrough']
+                         (isLens || isPrism || isTelescope || isPeriscope || isAbcd || isTest) ? '' : 'passthrough']
                         .filter(Boolean).join(' ')
                       return (
                         <tr key={o.id} className={rowClass}
@@ -2096,6 +2358,11 @@ const BeamPropagationMode = forwardRef(function BeamPropagationMode({
                               <option value="lens-cylY" disabled={!p.splitXY}>Lens (Cyl. Y)</option>
                               <option value="prism-x" disabled={!p.splitXY}>Prism pair (X)</option>
                               <option value="prism-y" disabled={!p.splitXY}>Prism pair (Y)</option>
+                              <option value="telescope">Telescope</option>
+                              <option value="periscope">Periscope</option>
+                              <option value="abcd">ABCD matrix</option>
+                              <option value="abcd-cylX" disabled={!p.splitXY}>ABCD matrix (Cyl. X)</option>
+                              <option value="abcd-cylY" disabled={!p.splitXY}>ABCD matrix (Cyl. Y)</option>
                               <option value="test">Test point</option>
                               <option value="passthrough">Pass-through</option>
                             </select>
@@ -2105,11 +2372,33 @@ const BeamPropagationMode = forwardRef(function BeamPropagationMode({
                           <td>{isLens ? (
                             <NumberField style={{ width: 80 }} value={o.f_mm} fallback={0}
                               onCommit={v => mutateOptic(i, { f_mm: v })} />
-                          ) : isPrism ? (
+                          ) : (isPrism || isTelescope) ? (
                             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
                               <span className="dim">×</span>
                               <NumberField style={{ width: 70 }} step="0.1" value={o.mag ?? 2} fallback={1}
                                 onCommit={v => mutateOptic(i, { mag: v })} />
+                            </span>
+                          ) : isPeriscope ? (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                              <NumberField style={{ width: 70 }} value={o.height_mm ?? 0} fallback={0}
+                                onCommit={v => mutateOptic(i, { height_mm: v })} />
+                              <span className="dim">mm</span>
+                            </span>
+                          ) : isAbcd ? (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                              title="ABCD matrix elements: q' = (A·q + B) / (C·q + D). q is in mm, so B is in mm and C is in 1/mm (e.g. a 100mm lens is C = -0.01, not -1/100 in 1/m).">
+                              <span className="dim" style={{ fontSize: 9 }}>A</span>
+                              <NumberField style={{ width: 62 }} step="0.01" value={o.A ?? 1} fallback={1}
+                                onCommit={v => mutateOptic(i, { A: v })} />
+                              <span className="dim" style={{ fontSize: 9 }}>B</span>
+                              <NumberField style={{ width: 62 }} step="0.01" value={o.B ?? 0} fallback={0}
+                                onCommit={v => mutateOptic(i, { B: v })} />
+                              <span className="dim" style={{ fontSize: 9 }}>C</span>
+                              <NumberField style={{ width: 68 }} step="0.0001" value={o.C ?? 0} fallback={0}
+                                onCommit={v => mutateOptic(i, { C: v })} />
+                              <span className="dim" style={{ fontSize: 9 }}>D</span>
+                              <NumberField style={{ width: 62 }} step="0.01" value={o.D ?? 1} fallback={1}
+                                onCommit={v => mutateOptic(i, { D: v })} />
                             </span>
                           ) : <span className="dim">—</span>}</td>
                           <td><input className="snap-input" style={{ width: 70 }}
@@ -2229,7 +2518,7 @@ const BeamPropagationMode = forwardRef(function BeamPropagationMode({
                         // Fallback: "lens" / "prism pair (x|y)" / "pass-through" /
                         // "test point" for rows without a designer origin.
                         // Cylindrical lenses get a shape suffix.
-                        const shapeSuffix = r.kind === 'lens' && r.shape && r.shape !== 'spherical'
+                        const shapeSuffix = (r.kind === 'lens' || r.kind === 'abcd') && r.shape && r.shape !== 'spherical'
                           ? ` (${r.shape === 'cylX' ? 'cyl. x' : 'cyl. y'})` : ''
                         const prismAxis = r.shape === 'prismY' ? 'y' : 'x'
                         const roleLabel = r.elementType?.trim()
@@ -2237,11 +2526,18 @@ const BeamPropagationMode = forwardRef(function BeamPropagationMode({
                           : (r.kind === 'test' ? 'test point'
                              : r.kind === 'lens' ? 'lens' + shapeSuffix
                              : r.kind === 'prism-pair' ? `prism pair (${prismAxis})`
+                             : r.kind === 'telescope' ? 'telescope'
+                             : r.kind === 'periscope' ? 'periscope'
+                             : r.kind === 'abcd' ? 'ABCD matrix' + shapeSuffix
                              : 'pass-through')
                         const valCell = r.kind === 'lens'
                           ? (Number.isFinite(r.f_mm) && r.f_mm !== 0 ? r.f_mm.toFixed(1) : '—')
-                          : r.kind === 'prism-pair'
+                          : (r.kind === 'prism-pair' || r.kind === 'telescope')
                             ? (Number.isFinite(r.mag) ? `×${r.mag}` : '—')
+                          : r.kind === 'periscope'
+                            ? (Number.isFinite(r.height_mm) ? `${r.height_mm} mm` : '—')
+                          : r.kind === 'abcd'
+                            ? `[${r.A ?? 1}, ${r.B ?? 0}, ${r.C ?? 0}, ${r.D ?? 1}]`
                             : ''
                         const disabled = r.enabled === false
                         return (

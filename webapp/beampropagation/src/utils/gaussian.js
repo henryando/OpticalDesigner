@@ -51,6 +51,13 @@ export function propagatePrismPair(q, M) {
   return { re: q.re * s, im: q.im * s }
 }
 
+// Apply an arbitrary ABCD matrix: q' = (A·q + B) / (C·q + D).
+export function propagateABCD(q, A, B, C, D) {
+  const num = cAdd(cScale(q, A), { re: B, im: 0 })
+  const den = cAdd(cScale(q, C), { re: D, im: 0 })
+  return cDiv(num, den)
+}
+
 // Beam radius (mm) from q.
 export function radiusFromQ(q, lambda_mm) {
   const invQ = cDiv({ re: 1, im: 0 }, q)
@@ -236,8 +243,12 @@ export function qFromBeam(w_mm, theta_rad, lambda_mm) {
 //                   label?, elementLabel? }
 //   { kind: 'prism-pair', mag: number, axis: 'x' | 'y',
 //                   label?, elementLabel? }
-// spherical lens acts on both axes; cylX only on qx; cylY only on qy.
-// Prism pair applies q → M²·q on its axis only.
+//   { kind: 'telescope', mag: number, label?, elementLabel? }
+//   { kind: 'abcd', A, B, C, D: number, shape: 'spherical' | 'cylX' | 'cylY',
+//                   label?, elementLabel? }
+// spherical lens/ABCD acts on both axes; cylX only on qx; cylY only on qy.
+// Prism pair applies q → M²·q on its axis only; a telescope applies the same
+// q → M²·q isotropically to both axes (afocal beam expander/reducer).
 // Returns { traceX, traceY, events, qxFinal, qyFinal, zTotal }.
 export function sampleWofZ2D(steps, qx0, qy0, lambda_mm, samplesPerSpace = 120) {
   const traceX = [], traceY = [], events = []
@@ -268,6 +279,22 @@ export function sampleWofZ2D(steps, qx0, qy0, lambda_mm, samplesPerSpace = 120) 
       else                    qx = propagatePrismPair(qx, M)
       events.push({ z_mm: z, kind: 'prism-pair', axis: step.axis === 'y' ? 'y' : 'x',
                     mag: M, label: step.label, elementLabel: step.elementLabel })
+      traceX.push({ z_mm: z, w_mm: radiusFromQ(qx, lambda_mm) })
+      traceY.push({ z_mm: z, w_mm: radiusFromQ(qy, lambda_mm) })
+    } else if (step.kind === 'telescope') {
+      const M = step.mag ?? 1
+      qx = propagatePrismPair(qx, M)
+      qy = propagatePrismPair(qy, M)
+      events.push({ z_mm: z, kind: 'telescope', mag: M, label: step.label, elementLabel: step.elementLabel })
+      traceX.push({ z_mm: z, w_mm: radiusFromQ(qx, lambda_mm) })
+      traceY.push({ z_mm: z, w_mm: radiusFromQ(qy, lambda_mm) })
+    } else if (step.kind === 'abcd') {
+      const A = step.A ?? 1, B = step.B ?? 0, C = step.C ?? 0, D = step.D ?? 1
+      const shape = step.shape ?? 'spherical'
+      if (shape === 'spherical' || shape === 'cylX') qx = propagateABCD(qx, A, B, C, D)
+      if (shape === 'spherical' || shape === 'cylY') qy = propagateABCD(qy, A, B, C, D)
+      events.push({ z_mm: z, kind: 'abcd', label: step.label, elementLabel: step.elementLabel,
+                    A, B, C, D, shape })
       traceX.push({ z_mm: z, w_mm: radiusFromQ(qx, lambda_mm) })
       traceY.push({ z_mm: z, w_mm: radiusFromQ(qy, lambda_mm) })
     }

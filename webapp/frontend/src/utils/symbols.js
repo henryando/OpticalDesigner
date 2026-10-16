@@ -25,6 +25,8 @@ export const DEFAULT_SYMBOL_DEFS = {
   '*shutter*':   { href: '/symbols/h-shutter.svg',   w: 11,     h: 11,     displayH: 11, orientation: 0 },
   '*fiber*':     { href: '/symbols/c-fiber.svg',     w: 11,     h: 11,     displayH: 14, labelClearance: 7 },
   '*eom*':       { href: '/symbols/c-eom2.svg',      w: 11,     h: 11,     displayH: 11 },
+  '*periscope*': { href: '/symbols/h-periscope.svg', w: 11,     h: 11,     displayH: 11 },
+  '*telescope*': { href: '/symbols/h-telescope.svg', w: 11,     h: 11,     displayH: 11 },
   'd-mirror':    { href: '/symbols/b-mir.svg',       w: 7,      h: 7,      displayH: 7  },
 }
 
@@ -46,8 +48,8 @@ export const AVAILABLE_SYMBOLS = [
   'e-pd1.svg','e-pd2.svg','e-pdgrn1.svg','e-pdgrn2.svg',
   'e-qpd.svg','e-servoleft.svg','e-servoright.svg','e-spekki.svg',
   'e-sum.svg','e-sumdiff.svg','e-wincam.svg','h-fabryperot.svg',
-  'h-fibercoupl.svg','h-iris.svg','h-lenstube.svg','h-prismpair.svg',
-  'h-shutter.svg',
+  'h-fibercoupl.svg','h-iris.svg','h-lenstube.svg','h-periscope.svg',
+  'h-prismpair.svg','h-shutter.svg','h-telescope.svg',
 ]
 
 // Convert any CSS color (name or hex) to a hex string for <input type="color">

@@ -32,6 +32,9 @@ The tool follows an **ideal Gaussian beam** (a perfect TEM₀₀ mode, M² = 1) 
 | Free space | Refractive index 1, so distances are just distances. |
 | Thin lenses | Spherical, or cylindrical (focusing along x or y only). Positive f converges, negative f diverges. |
 | Prism pairs | An ideal anamorphic magnifier along x or y: it enlarges that axis's beam by a factor M and shrinks its divergence by M. |
+| Telescopes | An ideal afocal expander/reducer: like a prism pair's M, but applied isotropically to both x and y. |
+| Periscopes | No lensing of their own — a single point where q → q + height, the same effect as propagating through that height in free space (so a beam near a waist inside that height won't show its dip on the plot, just the entrance and exit sizes). |
+| ABCD matrices | An arbitrary user-specified A, B, C, D (q' = (A·q + B) / (C·q + D)), spherical or restricted to one axis like a cylindrical lens. |
 | Test points | Marked z positions where you want the beam size reported. |
 
 It does **not** model lens thickness, aberrations, apertures or clipping, beam quality M² > 1, loss, or rotated (off-axis) cylindrical lenses. The x and y axes are independent of each other.
@@ -158,7 +161,7 @@ One table holds everything along the beam. The **Upload from project .zip** butt
 | **On** | Untick to skip the item without deleting it (for a test point, this hides its marker). |
 | **Role** | What it is — see below. |
 | **z (mm)** | Position along the beam. |
-| **f / M** | Focal length in mm for a lens (negative = diverging), or magnification ×M for a prism pair. |
+| **f / M** | Focal length in mm for a lens (negative = diverging), magnification ×M for a prism pair or telescope, height in mm for a periscope, or the A, B, C, D values for an ABCD matrix. |
 | **Label** | A name shown on the plot and in the results. |
 | **Element** | Filled in for imported items: the designer element it came from. |
 
@@ -169,6 +172,9 @@ One table holds everything along the beam. The **Upload from project .zip** butt
 | Lens | Spherical thin lens; acts on x and y. |
 | Lens (Cyl. X) / (Cyl. Y) | Focuses only one axis. Needs **Split x / y**. |
 | Prism pair (X) / (Y) | Magnifies that axis's beam by M (and divides its divergence by M). Needs **Split x / y** — adding one turns it on for you. |
+| Telescope | An afocal expander/reducer: magnifies the beam by M on both x and y (no **Split x / y** needed). |
+| Periscope | No lensing — a single point equivalent to propagating through its height in free space (q → q + height). |
+| ABCD matrix / (Cyl. X) / (Cyl. Y) | An arbitrary A, B, C, D matrix; spherical acts on both axes, Cyl. X / Cyl. Y restrict it to one (needs **Split x / y**). |
 | Test point | No effect on the beam; reports beam size at its z. |
 | Pass-through | No effect; a placeholder, mostly for imported non-lens elements (mirrors, waveplates…). Hidden from the table until you tick **Show pass-through**. |
 
@@ -176,7 +182,7 @@ The table stays in the order you added things; the physics always sorts by z.
 
 ### The plot
 
-The plot shows beam size against z. Lenses and prism pairs appear as icons at the top with their labels and values; test points are green dashed lines with a label above; if you used **Fit from measurements**, the measured points appear as dots (x) and squares (y).
+The plot shows beam size against z. Every optic appears as an icon at the top with its label and value (an ABCD matrix shows as a small "M" box, since it has no fixed symbol); test points are green dashed lines with a label above; if you used **Fit from measurements**, the measured points appear as dots (x) and squares (y).
 
 Most things can be adjusted by dragging:
 
@@ -184,7 +190,9 @@ Most things can be adjusted by dragging:
 |---|---|
 | Any optic's **dashed line** ← → | its z |
 | A lens **icon** ← → / ↑ ↓ | z / focal length f |
-| A prism-pair **icon** ← → / ↑ ↓ | z / magnification M |
+| A prism-pair or telescope **icon** ← → / ↑ ↓ | z / magnification M |
+| A periscope **icon** ← → / ↑ ↓ | z / height |
+| An ABCD-matrix icon ← → | z (A, B, C, D are edited in the table) |
 | A **test point's line or label** ← → | its z |
 | The plot's **bottom-right corner** | the plot size |
 
@@ -248,6 +256,8 @@ What you get:
 
 - One item per element along the route, at its real z: the distance between elements (designer positions are in inches, converted at 25.4 mm/in).
 - Elements whose type contains "lens" become **lenses**, with the focal length taken from the element's `f_mm` field, a `Focal Length` column, or its **Annotation** (for example `f = 100 mm`; units mm, cm, m and inches are understood). If none is found, f is left at 0 for you to fill in.
+- Elements whose type contains "periscope" become **periscopes**, with the height taken the same way from `h_mm`, a `Height` column, or an Annotation like `h = 50 mm`.
+- Elements whose type contains "telescope" become **telescopes** (magnification left at the default ×2 for you to fill in — there's no annotation convention for it).
 - Everything else (mirrors, waveplates…) becomes a **pass-through**: it marks the position but does not affect the beam. Change its **Role** if you want it to act as something else.
 - Elements marked *not In Design*, or on a hidden layer, are left out — the same rule the designer uses.
 
@@ -297,6 +307,9 @@ For a beam with complex parameter q = z + i·z_R:
 - free space of length L: q → q + L
 - thin lens of focal length f: 1/q → 1/q − 1/f
 - prism pair of magnification M on one axis: q → M²·q
+- telescope of magnification M: q → M²·q, applied to both axes
+- periscope of height h: no lensing — a single point, q → q + h, same as the ABCD matrix (1, h; 0, 1)
+- ABCD matrix: q → (A·q + B) / (C·q + D)
 
 x and y each carry their own q. The plotted size is the 1/e² intensity radius (doubled in diameter mode).
 

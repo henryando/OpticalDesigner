@@ -211,6 +211,16 @@
 .prop-table select.snap-input {
   padding: 3px 6px;
 }
+/* Hide the native up/down spinner on every number field in this table (z,
+   f / M / height / ABCD) — clicking it steps by a fixed increment that
+   doesn't mean much here, and on the cramped multi-field cells (ABCD) it
+   just eats width. */
+.prop-table input[type=number] { -moz-appearance: textfield; }
+.prop-table input[type=number]::-webkit-outer-spin-button,
+.prop-table input[type=number]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
 .prop-actions { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
 
 /* Plots container */

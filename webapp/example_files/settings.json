@@ -143,6 +143,18 @@
       "h": 11,
       "displayH": 11
     },
+    "*periscope*": {
+      "href": "/symbols/h-periscope.svg",
+      "w": 11,
+      "h": 11,
+      "displayH": 11
+    },
+    "*telescope*": {
+      "href": "/symbols/h-telescope.svg",
+      "w": 11,
+      "h": 11,
+      "displayH": 11
+    },
     "d-mirror": {
       "href": "/symbols/b-mir.svg",
       "w": 7,
