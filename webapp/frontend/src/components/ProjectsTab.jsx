@@ -139,6 +139,11 @@ const ProjectsTab = forwardRef(function ProjectsTab({
   function persist(next) { saveProjects(next); setProjects(next) }
 
   const [session, setSession] = useState(null)
+  // When the user clicks the reset link in their email, Supabase hands this
+  // app back a session marked as a password-recovery flow; opening the auth
+  // panel in 'reset' mode lets them finish by picking a new password without
+  // having to find the Projects tab themselves.
+  const [authInitialMode, setAuthInitialMode] = useState('signin')
   useEffect(() => {
     if (!supabase) return
     supabase.auth.getSession().then(({ data }) => setSession(data.session))
@@ -149,6 +154,10 @@ const ProjectsTab = forwardRef(function ProjectsTab({
     const { data: sub } = supabase.auth.onAuthStateChange((event, s) => {
       if (s) setSession(s)
       else if (event === 'SIGNED_OUT') setSession(null)
+      if (event === 'PASSWORD_RECOVERY') {
+        setAuthInitialMode('reset')
+        setAuthOpen(true)
+      }
     })
     return () => sub.subscription.unsubscribe()
   }, [])
@@ -590,7 +599,8 @@ const ProjectsTab = forwardRef(function ProjectsTab({
         )}
       </div>
 
-      {authOpen && <AuthPanel onClose={() => setAuthOpen(false)} />}
+      {authOpen && <AuthPanel initialMode={authInitialMode}
+        onClose={() => { setAuthOpen(false); setAuthInitialMode('signin') }} />}
 
       {menu && <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}
 
