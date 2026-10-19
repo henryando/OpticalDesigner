@@ -201,6 +201,8 @@ export default function App() {
           </button>
           <a className="file-btn" href="https://github.com/henryando/OpticalDesigner/tree/main/webapp/beampropagation#readme"
             target="_blank" rel="noreferrer">GitHub Readme</a>
+          <a className="file-btn" href="https://opticaldesigner.netlify.app" target="_blank" rel="noreferrer"
+            title="Draw the optical table layout this app imports beam paths from">OpticalDesigner</a>
           <span className="hdr-sep" />
           <button className="file-btn file-btn-accent"
             onClick={() => propagationModeRef.current?.exportPdf()}

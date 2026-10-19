@@ -1941,6 +1941,8 @@ export default function App() {
             {settings.darkMode ? '☀ Light' : '☾ Dark'}
           </button>
           <a className="file-btn" href="https://github.com/henryando/OpticalDesigner#readme" target="_blank" rel="noreferrer">GitHub Readme</a>
+          <a className="file-btn" href="https://beampropagation.netlify.app" target="_blank" rel="noreferrer"
+            title="Gaussian beam propagation — import a beam path from a project exported here">Beam Propagation</a>
           <div className="file-menu" ref={fileMenuRef}>
             <button className="file-btn" onClick={() => setFileMenuOpen(o => !o)}>File ▾</button>
             {fileMenuOpen && (
