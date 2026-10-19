@@ -112,9 +112,6 @@ export default function Sidebar({
   const [elemFilter, setElemFilter] = useState('')
 
   function set(key, val) { onSettingsChange({ ...settings, [key]: val }) }
-  function setNum(key, val) { const v = parseFloat(val); if (!isNaN(v) && v > 0) set(key, v) }
-  // Variant for settings where 0 is meaningful (e.g. beam offset 0 = no fan-out).
-  function setNumZeroOk(key, val) { const v = parseFloat(val); if (!isNaN(v) && v >= 0) set(key, v) }
   function setConfig(key, val) {
     const v = parseFloat(val)
     if (isNaN(v)) return
@@ -482,9 +479,9 @@ export default function Sidebar({
                         onDoubleClick={() => { setRenamingBg(name); setRenameBgVal(name) }}
                         title="Double-click to rename">{name}</span>
                     )}
-                    <input className="stroke-input" type="number" min="0.5" max="20" step="0.5"
+                    <DeferredNumberInput className="stroke-input" min="0.5" max="20" step="0.5" positive
                       value={strokeWidth}
-                      onChange={e => onSetBgGroupStroke(name, parseFloat(e.target.value) || 1)}
+                      onCommit={v => onSetBgGroupStroke(name, v)}
                       title="Stroke width" />
                     <button
                       className={`path-edit-btn ${isEditing ? 'active' : ''}`}
@@ -640,29 +637,26 @@ export default function Sidebar({
                   <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr auto 1fr',
                                 gap: 4, marginTop: 4, alignItems: 'center', fontSize: 10 }}>
                     <span>X</span>
-                    <input className="snap-input" type="number" step="0.5"
+                    <DeferredNumberInput className="snap-input" step="0.5"
                       value={Number(img.x).toFixed(2)}
-                      onChange={e => onUpdateBgImage(name, { x: parseFloat(e.target.value) || 0 })} />
+                      onCommit={v => onUpdateBgImage(name, { x: v })} />
                     <span>Y</span>
-                    <input className="snap-input" type="number" step="0.5"
+                    <DeferredNumberInput className="snap-input" step="0.5"
                       value={Number(img.y).toFixed(2)}
-                      onChange={e => onUpdateBgImage(name, { y: parseFloat(e.target.value) || 0 })} />
+                      onCommit={v => onUpdateBgImage(name, { y: v })} />
                     <span>W</span>
-                    <input className="snap-input" type="number" step="0.5" min="0.1"
+                    <DeferredNumberInput className="snap-input" step="0.5" min="0.1" positive
                       value={Number(img.widthIn).toFixed(2)}
-                      onChange={e => {
-                        const w = parseFloat(e.target.value)
-                        if (w > 0) onUpdateBgImage(name, { widthIn: w })
-                      }} />
+                      onCommit={v => onUpdateBgImage(name, { widthIn: v })} />
                     <span>α</span>
                     <input type="range" min="0" max="1" step="0.05"
                       value={img.opacity ?? 1}
                       onChange={e => onUpdateBgImage(name, { opacity: parseFloat(e.target.value) })}
                       title={`${Math.round((img.opacity ?? 1) * 100)}%`} />
                     <span>θ</span>
-                    <input className="snap-input" type="number" step="15"
+                    <DeferredNumberInput className="snap-input" step="15"
                       value={Number(img.rotation ?? 0).toFixed(0)}
-                      onChange={e => onUpdateBgImage(name, { rotation: parseFloat(e.target.value) || 0 })}
+                      onCommit={v => onUpdateBgImage(name, { rotation: v })}
                       title="Rotation (degrees, clockwise)" />
                   </div>
                   <div style={{ display: 'flex', gap: 4, marginTop: 4, fontSize: 10 }}>
@@ -708,9 +702,9 @@ export default function Sidebar({
             <div className="sidebar-section-header"><span>Canvas Scale (px/in)</span></div>
             <div className="setting-row">
               <span className="setting-label">Scale</span>
-              <input className="snap-input" type="number" min="1" max="50" step="1"
+              <DeferredNumberInput className="snap-input" min="1" max="50" step="1" positive
                 value={settings.scale}
-                onChange={e => setNum('scale', e.target.value)} />
+                onCommit={v => set('scale', v)} />
             </div>
           </section>
 
@@ -766,9 +760,9 @@ export default function Sidebar({
             </label>
             <div className="setting-row" style={{ marginTop: 4 }}>
               <span className="setting-label">Line width</span>
-              <input className="snap-input" type="number" min="0.1" max="5" step="0.1"
+              <DeferredNumberInput className="snap-input" min="0.1" max="5" step="0.1" positive
                 value={settings.gridLineWidth}
-                onChange={e => setNum('gridLineWidth', e.target.value)} />
+                onCommit={v => set('gridLineWidth', v)} />
             </div>
           </section>
 
@@ -776,9 +770,9 @@ export default function Sidebar({
             <div className="sidebar-section-header"><span>Beam Paths</span></div>
             <div className="setting-row">
               <span className="setting-label">Overlap offset</span>
-              <input className="snap-input" type="number" min="0" max="20" step="0.5"
+              <DeferredNumberInput className="snap-input" min="0" max="20" step="0.5" nonNegative
                 value={settings.beamSpacing ?? 1}
-                onChange={e => setNumZeroOk('beamSpacing', e.target.value)} />
+                onCommit={v => set('beamSpacing', v)} />
             </div>
             <p style={{ fontSize: 10, color: 'var(--text-muted)', margin: '4px 0 0' }}>
               Perpendicular gap between beams sharing the same two elements. 0 = no offset.
@@ -796,9 +790,9 @@ export default function Sidebar({
             {settings.showBeamArrows && (
               <div className="setting-row">
                 <span className="setting-label">Arrow size</span>
-                <input className="snap-input" type="number" min="0.1" max="20" step="0.25"
+                <DeferredNumberInput className="snap-input" min="0.1" max="20" step="0.25" positive
                   value={settings.beamArrowSize ?? 1}
-                  onChange={e => setNum('beamArrowSize', e.target.value)} />
+                  onCommit={v => set('beamArrowSize', v)} />
                 <span className="setting-unit">×</span>
               </div>
             )}
@@ -820,9 +814,9 @@ export default function Sidebar({
             </div>
             <div className="setting-row">
               <span className="setting-label">Custom</span>
-              <input className="snap-input" type="number" min="0.1" max="10" step="0.25"
+              <DeferredNumberInput className="snap-input" min="0.1" max="10" step="0.25" positive
                 value={settings.snapSpacing}
-                onChange={e => setNum('snapSpacing', e.target.value)} />
+                onCommit={v => set('snapSpacing', v)} />
               <span className="setting-unit">in</span>
             </div>
           </section>
@@ -861,16 +855,16 @@ export default function Sidebar({
             <div className="sidebar-section-header"><span>PDF Export</span></div>
             <div className="setting-row">
               <span className="setting-label">Font size</span>
-              <input className="snap-input" type="number" min="1" max="20" step="0.5"
+              <DeferredNumberInput className="snap-input" min="1" max="20" step="0.5" positive
                 value={settings.pdfFontSize ?? 4}
-                onChange={e => setNum('pdfFontSize', e.target.value)} />
+                onCommit={v => set('pdfFontSize', v)} />
               <span className="setting-unit">pt</span>
             </div>
             <div className="setting-row">
               <span className="setting-label">Label Y offset</span>
-              <input className="snap-input" type="number" step="0.5"
+              <DeferredNumberInput className="snap-input" step="0.5"
                 value={settings.pdfLabelYOffset ?? 0}
-                onChange={e => { const v = parseFloat(e.target.value); if (!isNaN(v)) set('pdfLabelYOffset', v) }} />
+                onCommit={v => set('pdfLabelYOffset', v)} />
               <span className="setting-unit">px</span>
             </div>
             <p style={{ fontSize: 10, color: 'var(--text-muted)', margin: '4px 0 0' }}>
@@ -1098,8 +1092,12 @@ function FieldInput({ value, onChange, type = 'text', suffix }) {
 // A number input that lets you delete the value freely while typing —
 // commits only on blur / Enter. Rejected input silently reverts to the
 // last valid value on blur. `positive` refuses non-positive values on
-// commit (used for table dimensions where 0 doesn't make sense).
-function DeferredNumberInput({ value, onCommit, className, style, positive, step, min }) {
+// commit (used for table dimensions where 0 doesn't make sense);
+// `nonNegative` allows zero but refuses negatives.
+function DeferredNumberInput({
+  value, onCommit, className, style, title,
+  positive, nonNegative, step, min, max,
+}) {
   const [local, setLocal] = useState(String(value))
   const [focused, setFocused] = useState(false)
   const shown = focused ? local : String(value)
@@ -1108,13 +1106,15 @@ function DeferredNumberInput({ value, onCommit, className, style, positive, step
     const raw = local.trim()
     if (raw === '') { setLocal(String(value)); return }
     const v = parseFloat(raw)
-    if (isNaN(v) || (positive && v <= 0)) { setLocal(String(value)); return }
+    if (isNaN(v)) { setLocal(String(value)); return }
+    if (positive && v <= 0)   { setLocal(String(value)); return }
+    if (nonNegative && v < 0) { setLocal(String(value)); return }
     onCommit(v)
     setLocal(String(v))
   }
   return (
-    <input className={className} type="number" step={step} min={min}
-      style={style}
+    <input className={className} type="number" step={step} min={min} max={max}
+      style={style} title={title}
       value={shown}
       onChange={e => setLocal(e.target.value)}
       onFocus={() => { setLocal(String(value)); setFocused(true) }}
@@ -1310,22 +1310,22 @@ function SymbolRow({ type, def, editing, renaming, renameVal, onRenameValChange,
           </div>
           <div className="setting-row">
             <span className="setting-label">Height (px)</span>
-            <input className="snap-input" type="number" min="1" max="60" step="0.5"
+            <DeferredNumberInput className="snap-input" min="1" max="60" step="0.5" positive
               value={def.displayH}
-              onChange={e => { const v = parseFloat(e.target.value); if (!isNaN(v) && v > 0) onUpdate({ displayH: v }) }} />
+              onCommit={v => onUpdate({ displayH: v })} />
           </div>
           <div className="setting-row">
             <span className="setting-label">Orientation</span>
-            <input className="snap-input" type="number" min="-360" max="360" step="45"
+            <DeferredNumberInput className="snap-input" min="-360" max="360" step="45"
               value={def.orientation ?? 0}
-              onChange={e => { const v = parseFloat(e.target.value); if (!isNaN(v)) onUpdate({ orientation: v }) }} />
+              onCommit={v => onUpdate({ orientation: v })} />
             <span className="setting-unit">°</span>
           </div>
           <div className="setting-row">
             <span className="setting-label">Label clearance</span>
-            <input className="snap-input" type="number" step="0.5"
+            <DeferredNumberInput className="snap-input" step="0.5"
               value={def.labelClearance ?? 6}
-              onChange={e => { const v = parseFloat(e.target.value); if (!isNaN(v)) onUpdate({ labelClearance: v }) }} />
+              onCommit={v => onUpdate({ labelClearance: v })} />
             <span className="setting-unit">px</span>
           </div>
         </div>
