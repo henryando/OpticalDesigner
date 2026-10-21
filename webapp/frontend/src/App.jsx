@@ -542,7 +542,7 @@ export default function App() {
   function updateElementField(label, key, value) {
     pushHistory()
     let parsed = value
-    if (key === 'x' || key === 'y' || key === 'orientation') {
+    if (key === 'x' || key === 'y' || key === 'orientation' || key === 'labelOrient') {
       const n = parseFloat(value); if (isNaN(n)) return; parsed = n
     }
     setOverrides(ov => ({ ...ov, [label]: { ...(ov[label] ?? {}), [key]: parsed } }))

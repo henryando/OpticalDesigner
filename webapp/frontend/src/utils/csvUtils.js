@@ -25,6 +25,7 @@ const ELEM_COL_ALIASES = {
   'position x': 'x', 'pos x': 'x', 'x': 'x',
   'position y': 'y', 'pos y': 'y', 'y': 'y',
   'orientation': 'orientation', 'orient': 'orientation', 'angle': 'orientation',
+  'label orient': 'labelOrient', 'labelorient': 'labelOrient', 'label angle': 'labelOrient',
   'in design': 'in_design',
 }
 const REQUIRED = ['label', 'type', 'x', 'y']
@@ -69,6 +70,8 @@ export function parseElementsCsv(text) {
     if (isNaN(x) || isNaN(y)) continue
     const orientRaw = colIdx.orientation != null ? (row[colIdx.orientation] ?? '').trim() : ''
     const orientation = orientRaw ? (parseFloat(orientRaw) || 0) : 0
+    const labelOrientRaw = colIdx.labelOrient != null ? (row[colIdx.labelOrient] ?? '').trim() : ''
+    const labelOrient = labelOrientRaw ? (parseFloat(labelOrientRaw) || 0) : 0
     const rawLabel = label.replace(/\.0$/, '')
     const normalizedLabel = /^\d+(\.\d+)?$/.test(rawLabel) ? `O-${rawLabel}` : rawLabel
     const type = (row[colIdx.type] ?? '').trim()
@@ -82,7 +85,7 @@ export function parseElementsCsv(text) {
     extraCols.forEach(({ name, index }) => {
       meta[name] = (row[index] ?? '').trim()
     })
-    elements.push({ label: normalizedLabel, type, x, y, orientation, in_design, ...meta })
+    elements.push({ label: normalizedLabel, type, x, y, orientation, labelOrient, in_design, ...meta })
   }
 
   if (!config && elements.length > 0) {
@@ -108,7 +111,7 @@ function csvEscape(val) {
     ? `"${s.replace(/"/g, '""')}"` : s
 }
 
-const CORE_KEYS = new Set(['label', 'type', 'x', 'y', 'orientation', 'id', '_softDeleted', 'in_design', 'labelPos'])
+const CORE_KEYS = new Set(['label', 'type', 'x', 'y', 'orientation', 'labelOrient', 'id', '_softDeleted', 'in_design', 'labelPos'])
 
 // elements: raw elements array; overrides: current overrides map; config: table config
 export function serializeElementsCsv(elements, overrides, config) {
@@ -136,10 +139,10 @@ export function serializeElementsCsv(elements, overrides, config) {
     const cfgParts = Object.entries(config).map(([k, v]) => `${k}=${v}`)
     lines.push(`# config: ${cfgParts.join(',')}`)
   }
-  lines.push(['Label', 'Type', 'Position x', 'Position y', 'Orientation', 'In Design', ...extraKeys].join(','))
+  lines.push(['Label', 'Type', 'Position x', 'Position y', 'Orientation', 'Label Orient', 'In Design', ...extraKeys].join(','))
   rows.forEach(el => {
     const inDesign = el.in_design === false ? 'FALSE' : 'TRUE'
-    lines.push([el.label, el.type ?? '', el.x, el.y, el.orientation ?? 0, inDesign,
+    lines.push([el.label, el.type ?? '', el.x, el.y, el.orientation ?? 0, el.labelOrient ?? 0, inDesign,
       ...extraKeys.map(k => csvEscape(el[k] ?? ''))].join(','))
   })
   return lines.join('\n')

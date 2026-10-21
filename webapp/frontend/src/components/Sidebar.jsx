@@ -957,6 +957,10 @@ export default function Sidebar({
                   <td><FieldInput value={selectedElement.orientation ?? 0} type="number" suffix="°" onChange={v => onUpdateElement(selectedElement.label, 'orientation', v)} /></td>
                 </tr>
                 <tr>
+                  <td title="Rotate the label text around the element center (degrees, clockwise)">Label °</td>
+                  <td><FieldInput value={selectedElement.labelOrient ?? 0} type="number" suffix="°" onChange={v => onUpdateElement(selectedElement.label, 'labelOrient', v)} /></td>
+                </tr>
+                <tr>
                   <td>In Design</td>
                   <td>
                     <input type="checkbox"

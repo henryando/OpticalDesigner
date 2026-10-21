@@ -1145,7 +1145,12 @@ const OpticalCanvas = forwardRef(function OpticalCanvas({
                   const clearance = def?.labelClearance ?? 6
                   const labelY   = Math.min(-clearance, -8 / transform.k)
                   const fontSize = Math.max(3, 8 / transform.k)
-                  return parts.map((text, i) => (
+                  // labelOrient (degrees, positive = clockwise on screen) rotates
+                  // the whole label stack around the element's center. The inner
+                  // <g> is already positioned at the element, so a bare rotate()
+                  // pivots on (0, 0) which is the element center.
+                  const labelOrient = Number(el.labelOrient) || 0
+                  const labels = parts.map((text, i) => (
                     <text key={i} x={0} y={labelY - i * fontSize * 1.2}
                       textAnchor="middle" fontSize={fontSize}
                       fill={i === 0 ? theme.labelColor : theme.labelColor2}
@@ -1154,6 +1159,9 @@ const OpticalCanvas = forwardRef(function OpticalCanvas({
                       {text}
                     </text>
                   ))
+                  return labelOrient
+                    ? <g transform={`rotate(${labelOrient})`}>{labels}</g>
+                    : labels
                 })()}
               </g>
             )
